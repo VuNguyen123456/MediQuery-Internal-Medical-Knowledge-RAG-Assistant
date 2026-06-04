@@ -1,6 +1,6 @@
-# ⬡ MediQuery — Internal Medical Knowledge RAG Assistant
+# MediQuery — Internal Medical Knowledge RAG Assistant
 
-A full-stack Retrieval Augmented Generation (RAG) system that lets authenticated users ask plain-English questions about indexed medical documents and receive accurate, grounded answers with exact source citations — powered by real medical PDFs from NIH, FDA, WHO, and CDC.
+A full-stack Retrieval Augmented Generation (RAG) system that lets authenticated users ask plain-English questions about indexed medical documents and receive grounded answers with exact source citations — powered by real medical PDFs from NIH, FDA, WHO, and CDC.
 
 ---
 
@@ -8,7 +8,7 @@ A full-stack Retrieval Augmented Generation (RAG) system that lets authenticated
 
 Medical and clinical teams deal with hundreds of documents — treatment guidelines, drug references, WHO/NIH/FDA publications. Finding specific answers means manually searching through PDFs. This is slow, error-prone, and inefficient.
 
-MediQuery solves this by letting authenticated users ask questions in plain English and instantly receive accurate answers with exact source citations — grounded exclusively in the indexed documents. No hallucinations. No outside knowledge. Every answer is traceable to a specific page in a specific document.
+MediQuery solves this by letting authenticated users ask questions in plain English and instantly receive accurate answers with exact source citations — grounded exclusively in the indexed documents. Every answer is traceable to a specific page in a specific document.
 
 ---
 
@@ -30,15 +30,27 @@ MediQuery solves this by letting authenticated users ask questions in plain Engl
                                                (embeddings, local)
 ```
 
-**Three microservices, all containerized:**
-
-| Service | Tech | Port | Role |
-|---------|------|------|------|
+| Service | Tech | Port (local dev) | Role |
+|---------|------|------------------|------|
 | Frontend | React + TypeScript | 3000 | Chat UI, login, citation display |
 | API | Express + TypeScript | 8005 | Auth, JWT validation, proxy to Flask |
-| RAG | Flask + Python | 5000 | Document parsing, embeddings, Pinecone search, Gemini generation |
+| RAG | Flask + Python | 5000 | Embeddings, Pinecone search, Gemini generation |
 
-The Flask service is **never directly accessible from the browser** — Express proxies all requests to it internally. API keys (Pinecone, Gemini) never reach the frontend.
+The Flask service is **never directly accessible from the browser**. Express proxies all requests to it. API keys (Pinecone, Gemini) never reach the frontend.
+
+### Minikube (single entry point)
+
+With Kubernetes ingress, the browser uses **one host** — `http://localhost` — instead of separate ports:
+
+| Path | Backend |
+|------|---------|
+| `/` | React (nginx) |
+| `/api/*` | Express (RAG queries, documents list) |
+| `/auth/login`, `/auth/callback`, `/auth/logout`, `/auth/me` | Express (OAuth) |
+| `/auth/success` | React (stores JWT after OAuth) |
+| `/health` | Express |
+
+Requires `minikube tunnel` in a separate terminal while using the app.
 
 ---
 
@@ -47,195 +59,94 @@ The Flask service is **never directly accessible from the browser** — Express 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
 | Language | TypeScript + Python | TS for API/frontend, Python for RAG |
-| LLM | Gemini 2.0 Flash | Generates grounded answers |
+| LLM | Gemini (`gemini-2.5-flash-lite` default) | Grounded answer generation |
 | Vector DB | Pinecone | Stores and searches document embeddings |
-| Embedding Model | HuggingFace all-MiniLM-L6-v2 | Converts text to 384-dim vectors (runs locally) |
-| Auth | Google OAuth (OIDC) + JWT | Secure enterprise authentication |
-| Backend API | Express.js (TypeScript) | User-facing API, auth, proxy layer |
-| RAG Service | Flask + LangChain (Python) | Document processing and retrieval |
+| Embedding model | HuggingFace `all-MiniLM-L6-v2` | 384-dim vectors (local in RAG service) |
+| Auth | Google OAuth + JWT (8h) | Authenticated access |
+| API | Express.js (TypeScript) | Auth, JWT, Flask proxy |
+| RAG | Flask (Python) | Ingestion, retrieval, prompts |
 | Frontend | React + TypeScript | Chat UI with citations |
-| Containerization | Docker + Docker Compose | Wires all 3 services together |
+| Containers | Docker Compose | Local three-service stack |
+| Orchestration | Kubernetes (Minikube) | Production-like local deploy |
 
 ---
 
 ## How RAG Works
 
-### Document Ingestion (runs once per document)
+### Document ingestion (run once per document batch)
 
 ```
 Medical PDF
-    ↓
-PyMuPDF extracts text + page numbers
-    ↓
-LangChain RecursiveCharacterTextSplitter
-  → 500-word chunks, 50-word overlap
-    ↓
-HuggingFace all-MiniLM-L6-v2
-  → each chunk → 384-dimensional vector
-    ↓
-Pinecone upsert
-  → { id, vector, metadata: { text, source, page } }
+    → PyMuPDF (text + page numbers)
+    → LangChain RecursiveCharacterTextSplitter (500 words, 50 overlap)
+    → HuggingFace all-MiniLM-L6-v2
+    → Pinecone upsert { id, vector, metadata: { text, source, page } }
 ```
 
-### Query Pipeline (runs on every user question)
+### Query pipeline (every user question)
 
 ```
-User: "What are the side effects of Metformin?"
-    ↓
-Embed question → 384-dim vector
-    ↓
-Pinecone cosine similarity search → top 4 chunks
-    ↓
-LangChain prompt builder injects chunks as context
-    ↓
-Gemini: "Answer ONLY from provided documents"
-    ↓
-{ answer: "...", citations: [{ source, page, excerpt }] }
-    ↓
-React renders answer bubble + citation cards
+Question → embed → Pinecone top-4 chunks → Gemini (document-only prompt)
+    → { answer, citations[] } → React chat + citation cards
 ```
 
-### Why 500-word chunks with 50-word overlap?
-- **500 words** = enough context for meaningful answers
-- **50-word overlap** = prevents losing context at chunk boundaries (a sentence starting at the end of chunk 3 and finishing in chunk 4 is preserved)
-- **Deterministic chunk IDs** = re-running ingestion is safe, Pinecone upsert overwrites on matching ID, no duplicates
-
----
-
-## Authentication Flow
-
-```
-User visits localhost:3000
-    ↓
-React checks localStorage for valid JWT
-    ├── Valid → /chat
-    └── Invalid/missing → /login
-                ↓
-        Click "Sign in with Google"
-                ↓
-        Google OAuth consent screen
-                ↓
-        Express receives auth code
-        Exchanges code → Google tokens
-        Verifies identity → creates JWT (8hr expiry)
-                ↓
-        Redirect to React /auth/success?token=<jwt>
-                ↓
-        React stores JWT in localStorage
-        Every future request: Authorization: Bearer <jwt>
-        Express validates JWT on every /api/* request
-        Invalid/expired → 401 → redirect to login
-```
+Ingestion is **idempotent** — deterministic chunk IDs; re-running `scripts/ingest.py` overwrites matching vectors.
 
 ---
 
 ## Project Structure
 
 ```
-mediquery/
+Internal Medical Knowledge RAG Assistant/
 ├── services/
-│   ├── api/                          ← Express TypeScript
-│   │   ├── src/
-│   │   │   ├── routes/
-│   │   │   │   ├── auth.ts           ← Google OAuth routes
-│   │   │   │   └── query.ts          ← proxies to Flask
-│   │   │   ├── middleware/
-│   │   │   │   └── authGuard.ts      ← JWT validation
-│   │   │   └── server.ts             ← entry point
-│   │   ├── package.json
-│   │   ├── tsconfig.json
-│   │   └── Dockerfile
-│   │
-│   ├── rag/                          ← Flask Python
-│   │   ├── src/
-│   │   │   ├── ingestion/
-│   │   │   │   ├── parser.py         ← PDF text extraction (PyMuPDF)
-│   │   │   │   ├── chunker.py        ← RecursiveCharacterTextSplitter
-│   │   │   │   └── uploader.py       ← embed + Pinecone upsert
-│   │   │   ├── retrieval/
-│   │   │   │   └── search.py         ← vector similarity search
-│   │   │   ├── generation/
-│   │   │   │   ├── prompt.py         ← RAG prompt builder
-│   │   │   │   └── llm.py            ← Gemini API call
-│   │   │   └── app.py                ← Flask entry point
-│   │   ├── requirements.txt
-│   │   └── Dockerfile
-│   │
-│   └── frontend/                     ← React TypeScript
-│       ├── src/
-│       │   ├── components/
-│       │   │   ├── ChatWindow.tsx     ← message bubbles + input
-│       │   │   ├── CitationCard.tsx   ← source display
-│       │   │   └── DocSidebar.tsx     ← indexed documents list
-│       │   ├── pages/
-│       │   │   ├── Login.tsx          ← Google OAuth login
-│       │   │   ├── Chat.tsx           ← main chat page
-│       │   │   └── AuthSuccess.tsx    ← JWT extraction after OAuth
-│       │   ├── hooks/
-│       │   │   └── useAuth.ts         ← JWT state management
-│       │   ├── api.ts                 ← centralized API calls
-│       │   └── App.tsx                ← routing + auth protection
-│       ├── package.json
-│       └── Dockerfile
-│
-├── documents/                        ← medical PDFs (gitignored)
-│   ├── NIH_Diabetes_Guidelines.pdf
-│   ├── FDA_Metformin_Label.pdf
-│   └── ...
-│
+│   ├── api/                 # Express — auth, JWT, Flask proxy
+│   │   └── src/routes/auth.ts, query.ts
+│   ├── rag/                 # Flask — ingestion, retrieval, Gemini
+│   │   └── src/app.py, generation/prompt.py, retrieval/search.py
+│   └── frontend/            # React — chat, login, sidebar
+│       └── src/api.ts, components/, pages/
+├── documents/               # Medical PDFs (tracked in git; add your own)
 ├── scripts/
-│   └── ingest.py                     ← run once to index documents
-│
-├── docker-compose.yml                ← wires all 3 services
-├── .env.example                      ← environment variable template
-└── .dockerignore
+│   ├── ingest.py            # Index PDFs into Pinecone
+│   └── generate-k8s-secret.ps1  # Build k8s/secret.yaml from .env (Windows)
+├── k8s/                     # Kubernetes manifests
+│   ├── *-deployment.yaml, ingress.yaml, configmap.yaml
+│   └── secret.yaml.example  # Template — real secret.yaml is gitignored
+├── docker-compose.yml
+├── deploy-minikube.ps1      # Windows Minikube deploy script
+├── deploy.sh                # Bash deploy (Docker + kubectl)
+├── docs/MINIKUBE.md         # Detailed Minikube guide
+└── .env                     # Secrets (gitignored — create locally)
 ```
 
 ---
 
 ## Indexed Knowledge Base
 
-| Document | Source | Domain |
-|----------|--------|--------|
-| Child & Adolescent Immunization Schedule | CDC | Immunization |
-| Adult Immunization Schedule | CDC | Immunization |
-| Invasive Breast Cancer Guidelines | NCCN | Oncology |
-| CDC Hypertension Guidelines | CDC | Cardiovascular |
-| Hypertension Management Program Toolkit | CDC | Cardiovascular |
-| Zestril (Lisinopril) FDA Label | FDA | Drug Reference |
-| Glucophage (Metformin) FDA Label | FDA | Drug Reference |
-| WHO Diabetes Treatment Guidelines | WHO | Metabolic |
-
-**535 vectors** across 8 documents indexed in Pinecone.
+Eight public medical PDFs are included (immunization schedules, hypertension toolkit, Lisinopril/Metformin labels, WHO diabetes guidelines, etc.). After ingestion, expect on the order of **500+ vectors** in Pinecone.
 
 ---
 
 ## Prerequisites
 
-- Docker Desktop
-- Git
-- Pinecone account (free tier) — [app.pinecone.io](https://app.pinecone.io)
-- Google Cloud project with OAuth 2.0 credentials — [console.cloud.google.com](https://console.cloud.google.com)
-- Gemini API key — [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+- **Docker Desktop** (for Compose or Minikube docker driver)
+- **Git**
+- **Python 3.12+** (for ingestion and native Flask dev)
+- **Node.js 20+** (for native API/frontend dev)
+- [Pinecone](https://app.pinecone.io) account and API key
+- [Google AI Studio](https://aistudio.google.com/apikey) API key for Gemini (`Generative Language API`)
+- [Google Cloud](https://console.cloud.google.com) OAuth 2.0 client (Web application)
+
+Optional for Kubernetes local deploy:
+
+- [Minikube](https://minikube.sigs.k8s.io/docs/start/)
+- `kubectl`
 
 ---
 
-## Quick Start
+## Environment Variables
 
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/yourusername/mediquery.git
-cd mediquery
-```
-
-### 2. Configure environment variables
-
-```bash
-cp .env.example .env
-```
-
-Fill in your `.env`:
+Create a `.env` file in the project root (never commit it). Example:
 
 ```env
 # Pinecone
@@ -244,131 +155,196 @@ PINECONE_INDEX_NAME=mediquery
 PINECONE_CLOUD=aws
 PINECONE_REGION=us-east-1
 
-# Gemini
+# Gemini (use an AI Studio key — not Agent Platform-only keys)
 GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-2.5-flash-lite
 
 # Google OAuth
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
+GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your_client_secret
 
 # JWT
-JWT_SECRET=your_random_secret_string
+JWT_SECRET=your_long_random_secret
 
-# URLs
+# --- Docker Compose / native dev (separate ports) ---
 EXPRESS_PORT=8005
 EXPRESS_URL=http://localhost:8005
 FRONTEND_URL=http://localhost:3000
 REACT_APP_API_URL=http://localhost:8005
+
+# --- Minikube ingress (single host) — use when deploying to K8s ---
+# EXPRESS_URL=http://localhost
+# FRONTEND_URL=http://localhost
+# REACT_APP_API_URL=http://localhost/api
 ```
-
-### 3. Add medical PDFs
-
-Place your PDF documents in the `documents/` folder. Free public sources:
-- **NIH**: [nhlbi.nih.gov/health-topics/guidelines](https://www.nhlbi.nih.gov/health-topics/guidelines)
-- **FDA Drug Labels**: [accessdata.fda.gov/scripts/cder/daf](https://www.accessdata.fda.gov/scripts/cder/daf/)
-- **WHO**: [who.int/publications](https://www.who.int/publications/)
-- **CDC**: [cdc.gov/vaccines/hcp/acip-recs](https://www.cdc.gov/vaccines/hcp/acip-recs/)
-
-### 4. Ingest documents into Pinecone
-
-```bash
-# Create Python virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install RAG dependencies
-pip install -r services/rag/requirements.txt
-
-# Run ingestion pipeline
-python scripts/ingest.py
-```
-
-Verify vectors appear in your Pinecone dashboard at [app.pinecone.io](https://app.pinecone.io).
-
-### 5. Configure Google OAuth
-
-In [Google Cloud Console](https://console.cloud.google.com):
-1. APIs & Services → OAuth consent screen → External
-2. APIs & Services → Credentials → Create OAuth 2.0 Client ID → Web Application
-3. Add authorized redirect URI: `http://localhost:8005/auth/callback`
-4. Add authorized JavaScript origin: `http://localhost:3000`
-
-### 6. Start the application
-
-```bash
-docker-compose up --build
-```
-
-Visit **[http://localhost:3000](http://localhost:3000)**
-
-> **Note:** First build takes 5-10 minutes (downloads base images + HuggingFace model). Subsequent starts are instant.
 
 ---
 
-## Development Setup (without Docker)
+## Quick Start (Docker Compose)
 
-Run each service manually in separate terminals:
+### 1. Clone and configure
 
-**Terminal 1 — Flask RAG Service:**
 ```bash
-cd services/rag/src
-python app.py
-# Running on http://localhost:5000
+git clone https://github.com/VuNguyen123456/MediQuery-Internal-Medical-Knowledge-RAG-Assistant.git
+cd MediQuery-Internal-Medical-Knowledge-RAG-Assistant
 ```
 
-**Terminal 2 — Express API:**
+Create `.env` as above (Compose / native URLs).
+
+### 2. Ingest documents into Pinecone
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1   # macOS/Linux: source venv/bin/activate
+pip install -r services/rag/requirements.txt
+python scripts/ingest.py
+```
+
+Confirm vectors in the [Pinecone console](https://app.pinecone.io).
+
+### 3. Google OAuth (Compose / native)
+
+In Google Cloud → Credentials → your OAuth client:
+
+| Setting | Value |
+|---------|--------|
+| Authorized redirect URIs | `http://localhost:8005/auth/callback` |
+| Authorized JavaScript origins | `http://localhost:3000` |
+
+If the app is in **Testing**, add your Google account under **Test users**.
+
+### 4. Start services
+
 ```bash
-cd services/api
+docker compose up --build
+```
+
+Open **http://localhost:3000**.
+
+First build can take several minutes (images + embedding model cache in the RAG image).
+
+---
+
+## Development Setup (no Docker)
+
+Three terminals from the project root (with `.env` loaded and ingestion done):
+
+```powershell
+# Terminal 1 — Flask
+cd services\rag\src
+python app.py
+
+# Terminal 2 — Express
+cd services\api
 npm install
 npm run dev
-# Running on http://localhost:8005
-```
 
-**Terminal 3 — React Frontend:**
-```bash
-cd services/frontend
+# Terminal 3 — React
+cd services\frontend
 npm install
 npm start
-# Running on http://localhost:3000
 ```
+
+Use **http://localhost:3000** and OAuth redirect `http://localhost:8005/auth/callback`.
+
+---
+
+## Minikube (Kubernetes local)
+
+Production-style deploy: ingress on **http://localhost**, internal service DNS, secrets via Kubernetes.
+
+**Detailed steps:** [docs/MINIKUBE.md](docs/MINIKUBE.md)
+
+**Short version (Windows PowerShell):**
+
+```powershell
+# Prerequisites: Docker Desktop running, minikube, kubectl
+minikube start
+minikube addons enable ingress
+minikube addons enable metrics-server
+
+# .env at project root; then:
+.\deploy-minikube.ps1
+
+# Second terminal — keep open:
+minikube tunnel
+```
+
+**Google OAuth for Minikube:**
+
+| Setting | Value |
+|---------|--------|
+| Authorized redirect URIs | `http://localhost/auth/callback` |
+| Authorized JavaScript origins | `http://localhost` (recommended) |
+
+Generate `k8s/secret.yaml` from `.env` (gitignored):
+
+```powershell
+.\scripts\generate-k8s-secret.ps1
+```
+
+**Rebuild frontend only** (after UI/API URL changes):
+
+```powershell
+minikube -p minikube docker-env --shell powershell | Invoke-Expression
+docker build -t mediquery-frontend:latest --build-arg REACT_APP_API_URL=http://localhost/api -f services/frontend/Dockerfile .
+kubectl rollout restart deployment frontend-deployment
+```
+
+**Rebuild RAG only** (after `app.py` / documents path changes):
+
+```powershell
+minikube -p minikube docker-env --shell powershell | Invoke-Expression
+docker build -t mediquery-rag:latest -f services/rag/Dockerfile .
+kubectl rollout restart deployment rag-deployment
+```
+
+---
+
+## Authentication Flow
+
+```
+User → /login → Sign in with Google → /auth/login (Express)
+    → Google consent → /auth/callback (Express) → JWT
+    → /auth/success (React stores token) → /chat
+```
+
+All `/api/*` requests send `Authorization: Bearer <jwt>`. Expired or invalid tokens return 401 and redirect to login.
 
 ---
 
 ## API Reference
 
-### Public Endpoints
+### Public (Express)
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Health check |
-| GET | `/auth/login` | Redirect to Google OAuth |
-| GET | `/auth/callback` | OAuth callback, issues JWT |
+| GET | `/auth/login` | Start Google OAuth |
+| GET | `/auth/callback` | OAuth callback; issues JWT |
 | POST | `/auth/logout` | Logout |
-| GET | `/auth/me` | Get current user from JWT |
+| GET | `/auth/me` | Current user from JWT |
 
-### Protected Endpoints (JWT required)
+### Protected (JWT required)
 
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/query` | Run RAG pipeline |
-| GET | `/api/documents` | List indexed documents |
+| GET | `/api/documents` | List PDFs in knowledge base |
 
-**POST `/api/query` request:**
+**POST `/api/query`**
+
 ```json
 { "question": "What are the side effects of Metformin?" }
 ```
 
-**POST `/api/query` response:**
+**Response**
+
 ```json
 {
-  "answer": "Metformin commonly causes gastrointestinal side effects including nausea, vomiting, and diarrhea, especially during initiation of therapy...",
+  "answer": "...",
   "citations": [
-    {
-      "source": "Metformin.pdf",
-      "page": 7,
-      "excerpt": "Common adverse effects include nausea, vomiting, diarrhea...",
-      "score": 0.91
-    }
+    { "source": "Metformin.pdf", "page": 7, "excerpt": "...", "score": 0.91 }
   ]
 }
 ```
@@ -377,46 +353,47 @@ npm start
 
 ## Re-ingesting Documents
 
-The ingestion pipeline is fully idempotent. Chunk IDs are deterministic (based on filename + page + position), so Pinecone upsert overwrites on matching ID — no duplicates.
-
 ```bash
-# Add new PDFs to documents/ then:
 python scripts/ingest.py
-
-# Or ingest a specific file:
-python scripts/ingest.py documents/new_document.pdf
+# Or one file:
+python scripts/ingest.py documents/your_new_file.pdf
 ```
 
 ---
 
-## Security Design
+## Security
 
 | Mechanism | Purpose |
 |-----------|---------|
-| Google OAuth (OIDC) | Only authenticated users access the system |
-| JWT tokens (8hr expiry) | Stateless session management after login |
-| Express backend proxy | Gemini + Pinecone keys never reach browser |
-| Flask internal only | Never directly accessible outside Docker network |
-| Environment variables | All secrets in `.env`, never hardcoded |
-| Docker network isolation | Services communicate internally only |
+| Google OAuth | Authenticated users only |
+| JWT (8h) | Stateless sessions |
+| Express proxy | External API keys stay server-side |
+| Flask internal / ClusterIP | RAG not exposed to browser |
+| `.env` + `k8s/secret.yaml` gitignored | Secrets not in repository |
 
 ---
 
-## Example Questions to Ask
+## Troubleshooting
 
-**Drug-specific (tests exact label retrieval):**
-- "What is the maximum daily dose of Metformin XR?"
-- "What are the contraindications for Lisinopril?"
-- "Does Metformin require dose adjustment for elderly patients?"
+| Symptom | What to check |
+|---------|----------------|
+| `redirect_uri_mismatch` | OAuth redirect URI must match `EXPRESS_URL` + `/auth/callback` (8005 for Compose, `http://localhost` for Minikube) |
+| `missing_code` / `Route not found` on `/auth/success` | Apply latest `k8s/ingress.yaml`; `/auth/success` must route to React |
+| Chat `Route not found` on Minikube | Rebuild frontend after `api.ts` fix; use `REACT_APP_API_URL=http://localhost/api` |
+| Sidebar "No documents indexed" but chat works | Rebuild RAG image (`/documents` path in container) |
+| Gemini 403 / quota | Use [AI Studio](https://aistudio.google.com/apikey) key; set `GEMINI_MODEL=gemini-2.5-flash-lite` |
+| Minikube / Docker issues | See [docs/MINIKUBE.md](docs/MINIKUBE.md) |
 
-**Cross-document (tests multi-source retrieval):**
-- "Can a hypertensive diabetic patient take both Lisinopril and Metformin?"
-- "What do the hypertension guidelines say about blood pressure targets?"
+---
 
-**Protocol-specific (tests precise chunk retrieval):**
-- "What are the 10 components of the Hypertension Management Program?"
+## Example Questions
+
+- "What are the contraindications for Lisinopril in patients with renal artery stenosis?"
+- "What blood pressure threshold triggers an EHR alert in the HMP toolkit?"
+- "What is the maximum daily dose of Metformin XR according to the FDA label?"
 - "What vaccines does the CDC recommend for adults over 65?"
 
+---
 
 ## License
 

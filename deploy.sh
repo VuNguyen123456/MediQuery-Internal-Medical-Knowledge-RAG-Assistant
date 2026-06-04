@@ -22,13 +22,16 @@ echo "========================================"
 echo ""
 echo "[1/5] Building Docker images..."
 
-# For minikube: use minikube's Docker daemon so images are available locally
-# Uncomment the next line if using minikube:
-# eval $(minikube docker-env)
+# For minikube: MINIKUBE=1 ./deploy.sh
+if [ -n "$MINIKUBE" ]; then
+  eval $(minikube docker-env)
+fi
 
 docker build -t mediquery-rag:latest -f services/rag/Dockerfile .
 docker build -t mediquery-api:latest -f services/api/Dockerfile .
-docker build -t mediquery-frontend:latest -f services/frontend/Dockerfile .
+docker build -t mediquery-frontend:latest \
+  --build-arg REACT_APP_API_URL=http://localhost/api \
+  -f services/frontend/Dockerfile .
 
 echo "  ✓ Images built"
 

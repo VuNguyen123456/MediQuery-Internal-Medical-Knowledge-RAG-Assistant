@@ -25,7 +25,7 @@ spec:
       containers:
         - name: api
           image: mediquery-api:latest
-          # imagePullPolicy: Never  ← uncomment for local minikube
+          imagePullPolicy: Never
           ports:
             - containerPort: 8005
           env:

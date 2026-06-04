@@ -1,21 +1,17 @@
 # k8s/ingress.yaml
 #
-# WHY INGRESS:
-#   In Docker Compose, each service has its own port (3000, 8005, 5000).
-#   In production Kubernetes, you want ONE entry point — port 80/443.
-#   Ingress is a smart reverse proxy that routes based on URL path:
+# Routes:
+#   /api/*              -> Express (RAG proxy + JWT)
+#   /auth/login         -> Express (OAuth start)
+#   /auth/callback      -> Express (OAuth callback from Google)
+#   /auth/logout        -> Express (logout)
+#   /auth/me            -> Express (optional user info)
+#   /auth/success       -> React (stores JWT from ?token= — NOT Express)
+#   /health             -> Express
+#   /*                  -> React frontend
 #
-#   localhost/          → frontend-service:3000  (React app)
-#   localhost/auth/*    → api-service:8005        (Google OAuth)
-#   localhost/api/*     → api-service:8005        (RAG queries)
-#   localhost/health    → api-service:8005        (health check)
-#
-#   This means React talks to /api/query (same origin) instead of
-#   localhost:8005/api/query. No CORS issues in production.
-#
-# REQUIRES: nginx ingress controller
-#   Install with: kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.0/deploy/static/provider/cloud/deploy.yaml
-#   Or with minikube: minikube addons enable ingress
+# Requires: minikube addons enable ingress
+# Expose:   minikube tunnel
 
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -23,32 +19,49 @@ metadata:
   name: mediquery-ingress
   namespace: default
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
 spec:
   ingressClassName: nginx
   rules:
-    - host: localhost   # change to your domain in production
+    - host: localhost
       http:
         paths:
-          # API routes — proxied to Express
-          - path: /api(/|$)(.*)
+          - path: /api
             pathType: Prefix
             backend:
               service:
                 name: api-service
                 port:
                   number: 8005
-          # Auth routes — proxied to Express
-          - path: /auth(/|$)(.*)
-            pathType: Prefix
+          - path: /auth/callback
+            pathType: Exact
             backend:
               service:
                 name: api-service
                 port:
                   number: 8005
-          # Health check — proxied to Express
+          - path: /auth/login
+            pathType: Exact
+            backend:
+              service:
+                name: api-service
+                port:
+                  number: 8005
+          - path: /auth/logout
+            pathType: Exact
+            backend:
+              service:
+                name: api-service
+                port:
+                  number: 8005
+          - path: /auth/me
+            pathType: Exact
+            backend:
+              service:
+                name: api-service
+                port:
+                  number: 8005
           - path: /health
             pathType: Exact
             backend:
@@ -56,8 +69,7 @@ spec:
                 name: api-service
                 port:
                   number: 8005
-          # Everything else — React frontend
-          - path: /()(.*)
+          - path: /
             pathType: Prefix
             backend:
               service:

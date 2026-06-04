@@ -20,6 +20,7 @@ data:
   PINECONE_REGION: "us-east-1"
   FLASK_PORT: "5000"
   FLASK_DEBUG: "false"
+  GEMINI_MODEL: "gemini-2.5-flash-lite"
   EXPRESS_PORT: "8005"
   EXPRESS_URL: "http://localhost"
   FRONTEND_URL: "http://localhost"

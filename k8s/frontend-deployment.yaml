@@ -26,7 +26,7 @@ spec:
       containers:
         - name: frontend
           image: mediquery-frontend:latest
-          # imagePullPolicy: Never  ← uncomment for local minikube
+          imagePullPolicy: Never
           ports:
             - containerPort: 3000
           livenessProbe:

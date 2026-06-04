@@ -39,7 +39,25 @@ from generation.prompt import (
 )
 from generation.llm import generate_answer
 
-load_dotenv(Path(__file__).resolve().parent.parent.parent.parent / ".env")
+_SRC_DIR = Path(__file__).resolve().parent
+
+
+def _resolve_documents_dir() -> Path:
+    """
+    PDF folder for the sidebar list.
+    Docker image: /app/documents (WORKDIR /app, src at /app/src).
+    Local dev: project_root/documents (four levels up from src).
+    """
+    for candidate in (
+        _SRC_DIR.parent / "documents",
+        _SRC_DIR.parent.parent.parent.parent / "documents",
+    ):
+        if candidate.is_dir():
+            return candidate
+    return _SRC_DIR.parent / "documents"
+
+
+load_dotenv(_SRC_DIR.parent.parent.parent.parent / ".env")
 
 app = Flask(__name__)
 CORS(app)  # Express is on a different port — CORS needed for local dev
@@ -146,7 +164,7 @@ def documents():
     Used by the React frontend sidebar to show what's in the knowledge base.
     Reads from the /documents folder — same source of truth as ingestion.
     """
-    docs_dir = Path(__file__).resolve().parent.parent.parent.parent / "documents"
+    docs_dir = _resolve_documents_dir()
 
     if not docs_dir.exists():
         return jsonify({"documents": []})

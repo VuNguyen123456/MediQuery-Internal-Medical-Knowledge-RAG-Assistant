@@ -32,7 +32,7 @@ spec:
       containers:
         - name: rag
           image: mediquery-rag:latest
-          # imagePullPolicy: Never  ← uncomment for local minikube (no registry)
+          imagePullPolicy: Never
           ports:
             - containerPort: 5000
           env:
@@ -73,6 +73,11 @@ spec:
                 configMapKeyRef:
                   name: mediquery-config
                   key: FLASK_DEBUG
+            - name: GEMINI_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: mediquery-config
+                  key: GEMINI_MODEL
           # Liveness probe — restart container if Flask stops responding
           livenessProbe:
             httpGet:
