@@ -12,6 +12,34 @@ MediQuery solves this by letting authenticated users ask questions in plain Engl
 
 ---
 
+## Demo
+
+# Video Walkthrough
+https://www.loom.com/share/fd4576d6345144b2866d4cc70903102b
+
+# Screenshots
+Login Page
+<img width="2559" height="1269" alt="image" src="https://github.com/user-attachments/assets/adf087c5-53de-4f97-87c4-fb5fdb23d9ff" />
+
+Sign in
+<img width="2559" height="1265" alt="image" src="https://github.com/user-attachments/assets/36a7e09d-217d-46e8-90b7-bc735de2eae7" />
+
+Chat
+<img width="2559" height="1251" alt="image" src="https://github.com/user-attachments/assets/f0c0c6d1-4e1d-47c8-813c-3fb6dfc173a9" />
+
+Chat — Document Queries
+<img width="2188" height="888" alt="image" src="https://github.com/user-attachments/assets/c2a7cc32-daa9-4360-baf3-e715149a40cf" />
+
+<img width="2190" height="911" alt="image" src="https://github.com/user-attachments/assets/a5a04fe6-fa49-4cbb-9558-b8ae47d6dd8b" />
+
+Citation Cards
+<img width="1026" height="611" alt="image" src="https://github.com/user-attachments/assets/099c8fea-c8b0-4869-b50c-e9949b3b958c" />
+
+Document Sidebar
+<img width="324" height="734" alt="image" src="https://github.com/user-attachments/assets/71cbd963-61d0-4312-a368-9ad74258b5a5" />
+
+---
+
 ## Architecture
 
 ```
