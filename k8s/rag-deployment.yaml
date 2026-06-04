@@ -1,0 +1,115 @@
+# k8s/rag-deployment.yaml
+#
+# WHY 2 REPLICAS FOR FLASK:
+#   RAG queries are the most CPU-intensive operation — embedding a question
+#   + Pinecone search + Gemini call takes 2-5 seconds. With 2 replicas,
+#   two users can get answers simultaneously without queuing.
+#   The HPA (hpa.yaml) will scale this up to 5 if load increases.
+#
+# WHY NO EXTERNAL PORT:
+#   Flask is internal only. The Service type is ClusterIP — only reachable
+#   from inside the cluster (by Express). Never exposed to the internet.
+#   This mirrors the Docker Compose architecture where Flask has no
+#   host port mapping.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-deployment
+  namespace: default
+  labels:
+    app: rag
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rag
+  template:
+    metadata:
+      labels:
+        app: rag
+    spec:
+      containers:
+        - name: rag
+          image: mediquery-rag:latest
+          # imagePullPolicy: Never  ← uncomment for local minikube (no registry)
+          ports:
+            - containerPort: 5000
+          env:
+            # Secrets — pulled from Secret object
+            - name: PINECONE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mediquery-secrets
+                  key: PINECONE_API_KEY
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mediquery-secrets
+                  key: GEMINI_API_KEY
+            # Config — pulled from ConfigMap
+            - name: PINECONE_INDEX_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: mediquery-config
+                  key: PINECONE_INDEX_NAME
+            - name: PINECONE_CLOUD
+              valueFrom:
+                configMapKeyRef:
+                  name: mediquery-config
+                  key: PINECONE_CLOUD
+            - name: PINECONE_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: mediquery-config
+                  key: PINECONE_REGION
+            - name: FLASK_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: mediquery-config
+                  key: FLASK_PORT
+            - name: FLASK_DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: mediquery-config
+                  key: FLASK_DEBUG
+          # Liveness probe — restart container if Flask stops responding
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 60   # give model time to load
+            periodSeconds: 30
+            failureThreshold: 3
+          # Readiness probe — don't send traffic until Flask is ready
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          # Resource limits — prevents one pod from starving others
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+
+---
+# Service — gives Flask a stable internal DNS name: http://rag-service:5000
+# ClusterIP = internal only, not reachable from outside the cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-service
+  namespace: default
+spec:
+  selector:
+    app: rag          # routes to all pods with label app=rag
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+  type: ClusterIP     # internal only — Flask never exposed externally

@@ -1,0 +1,66 @@
+# k8s/frontend-deployment.yaml
+#
+# WHY 1 REPLICA FOR FRONTEND:
+#   The React app is compiled to static files served by nginx.
+#   Nginx is extremely lightweight and can handle thousands of concurrent
+#   connections from a single replica. Scale only if you have hundreds of
+#   simultaneous users loading the page.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+  namespace: default
+  labels:
+    app: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: mediquery-frontend:latest
+          # imagePullPolicy: Never  ← uncomment for local minikube
+          ports:
+            - containerPort: 3000
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+
+---
+# Service — routes external traffic from Ingress to React pods
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: default
+spec:
+  selector:
+    app: frontend
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000
+  type: ClusterIP

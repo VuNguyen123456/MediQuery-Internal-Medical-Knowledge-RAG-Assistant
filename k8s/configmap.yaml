@@ -1,0 +1,27 @@
+# k8s/configmap.yaml
+#
+# WHY CONFIGMAP:
+#   Non-sensitive config that can safely live in git.
+#   Separating config from secrets means you can change URLs or ports
+#   without touching the secrets file.
+#
+#   Rule of thumb:
+#   - API keys, passwords, tokens → Secret
+#   - URLs, port numbers, feature flags → ConfigMap
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mediquery-config
+  namespace: default
+data:
+  PINECONE_INDEX_NAME: "mediquery"
+  PINECONE_CLOUD: "aws"
+  PINECONE_REGION: "us-east-1"
+  FLASK_PORT: "5000"
+  FLASK_DEBUG: "false"
+  EXPRESS_PORT: "8005"
+  EXPRESS_URL: "http://localhost"
+  FRONTEND_URL: "http://localhost"
+  FLASK_SERVICE_URL: "http://rag-service:5000"
+  REACT_APP_API_URL: "http://localhost/api"

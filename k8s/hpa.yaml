@@ -1,0 +1,66 @@
+# k8s/hpa.yaml
+#
+# WHY HPA (HorizontalPodAutoscaler):
+#   This is the key difference between Docker Compose and Kubernetes.
+#   Docker Compose runs a fixed number of containers.
+#   Kubernetes HPA watches CPU/memory and automatically:
+#     - Spins UP more pods when load is high (many concurrent RAG queries)
+#     - Spins DOWN pods when load is low (saves resources/cost)
+#
+# FLASK SCALING SCENARIO:
+#   Normal traffic:    2 Flask pods (minReplicas)
+#   10 users querying: CPU hits 70% → Kubernetes adds pods → 3, 4, 5 pods
+#   Traffic drops:     CPU falls → Kubernetes removes pods → back to 2
+#   Max ever:          5 Flask pods (maxReplicas)
+#
+# WHY FLASK SCALES BUT NOT FRONTEND:
+#   Flask does the heavy work — embeddings, Pinecone search, Gemini calls.
+#   nginx (frontend) is stateless static file serving, handles load fine at 1.
+#   Express is lightweight auth + proxy, scales modestly.
+#
+# REQUIRES: metrics-server
+#   Install: kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+#   Or with minikube: minikube addons enable metrics-server
+
+# ─── Flask RAG — scales 2 to 5 pods ─────────────────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rag-hpa
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: rag-deployment
+  minReplicas: 2    # always at least 2 for availability
+  maxReplicas: 5    # never more than 5 (Pinecone free tier rate limits)
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70  # scale up when avg CPU > 70%
+
+---
+# ─── Express API — scales 2 to 4 pods ────────────────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-hpa
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-deployment
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

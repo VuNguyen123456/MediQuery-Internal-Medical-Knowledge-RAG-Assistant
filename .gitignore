@@ -148,6 +148,20 @@ docker-compose.override.yml
 docker-compose.*.local.yml
 
 # -----------------------------------------------------------------------------
+# Kubernetes (never commit real secrets — use secret.yaml.example as template)
+# -----------------------------------------------------------------------------
+k8s/secret.yaml
+**/secret.yaml
+!**/secret.yaml.example
+k8s/*-secret.yaml
+**/*-secrets.yaml
+
+# Local kubeconfig / cluster credentials
+kubeconfig
+kubeconfig.*
+*.kubeconfig
+
+# -----------------------------------------------------------------------------
 # Misc
 # -----------------------------------------------------------------------------
 *.bak
