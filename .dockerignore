@@ -1,0 +1,32 @@
+# .dockerignore — files excluded from Docker build context
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/venv/
+**/.env
+
+# Node
+**/node_modules/
+**/npm-debug.log
+
+# React build artifacts (rebuilt inside container)
+services/frontend/build/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+**/*.suo
+**/*.user
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+**/*.log

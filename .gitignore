@@ -1,0 +1,158 @@
+# =============================================================================
+# MediQuery — root .gitignore
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Secrets & environment (never commit API keys, OAuth creds, JWT secret)
+# -----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# -----------------------------------------------------------------------------
+# Python (Flask RAG service, scripts, venv)
+# -----------------------------------------------------------------------------
+venv/
+.venv/
+env/
+ENV/
+
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+*.egg
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.manifest
+*.spec
+
+.installed.cfg
+pip-log.txt
+pip-delete-this-directory.txt
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+coverage.xml
+*.cover
+*.mo
+*.pot
+
+# Local ML / embedding model caches (Hugging Face, sentence-transformers)
+.cache/
+**/.cache/
+huggingface/
+
+# -----------------------------------------------------------------------------
+# Node.js (Express API + React frontend)
+# -----------------------------------------------------------------------------
+node_modules/
+**/node_modules/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+.npm
+.yarn-integrity
+.pnp
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# TypeScript / build outputs (rebuilt via npm run build or Docker)
+services/api/dist/
+services/frontend/build/
+
+*.tsbuildinfo
+.eslintcache
+
+# -----------------------------------------------------------------------------
+# Logs & runtime
+# -----------------------------------------------------------------------------
+*.log
+logs/
+*.pid
+*.seed
+*.pid.lock
+
+# -----------------------------------------------------------------------------
+# IDE & editor
+# -----------------------------------------------------------------------------
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.iml
+*.ipr
+*.iws
+
+*.sublime-project
+*.sublime-workspace
+
+*.swp
+*.swo
+*~
+
+# Cursor local state (keep .cursor/rules if you add them later via negation)
+.cursor/
+
+# -----------------------------------------------------------------------------
+# OS & OneDrive
+# -----------------------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# OneDrive conflict / temp office lock files
+~$*
+*.tmp
+
+# -----------------------------------------------------------------------------
+# Docker (local overrides only — keep docker-compose.yml in repo)
+# -----------------------------------------------------------------------------
+docker-compose.override.yml
+docker-compose.*.local.yml
+
+# -----------------------------------------------------------------------------
+# Misc
+# -----------------------------------------------------------------------------
+*.bak
+*.orig
+*.rej
+.temp/
+tmp/
+temp/

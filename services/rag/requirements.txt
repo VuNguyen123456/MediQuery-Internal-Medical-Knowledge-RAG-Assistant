@@ -1,0 +1,28 @@
+# MediQuery RAG Service — Python Dependencies
+# Install: pip install -r requirements.txt
+
+# PDF parsing
+PyMuPDF==1.24.3                  # fitz — fast, handles most medical PDFs
+
+# Text chunking
+langchain-text-splitters==0.2.2  # RecursiveCharacterTextSplitter
+
+# Embeddings (runs locally, no API key)
+sentence-transformers==3.0.1     # all-MiniLM-L6-v2 — 384-dim, ~90MB download
+
+# Vector database
+pinecone==4.1.0                  # Pinecone v3+ client
+
+# LLM (Ring 2)
+google-generativeai==0.7.2       # Gemini API
+
+# RAG orchestration (Ring 2)
+langchain==0.2.7
+langchain-google-genai==1.0.7
+
+# API server (Ring 2)
+flask==3.0.3
+flask-cors==4.0.1
+
+# Utilities
+python-dotenv==1.0.1             # loads .env file

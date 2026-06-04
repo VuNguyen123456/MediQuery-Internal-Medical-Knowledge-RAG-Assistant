@@ -1,0 +1,90 @@
+version: "3.9"
+
+# ---------------------------------------------------------------------------
+# MediQuery — Docker Compose
+#
+# Starts all 3 services with one command: docker-compose up --build
+#
+# NETWORK ARCHITECTURE:
+#   frontend (3000) → api (8005) → rag (5000)
+#                                → Pinecone (external)
+#                                → Gemini (external)
+#   api (8005) → Google OAuth (external)
+#
+#   The 'rag' service has no ports exposed to the host —
+#   it's only reachable by 'api' over the internal Docker network.
+#   This means Pinecone and Gemini API keys never reach the browser.
+# ---------------------------------------------------------------------------
+
+services:
+
+  # ─── Flask RAG Service ────────────────────────────────────────────────────
+  rag:
+    build:
+      context: .
+      dockerfile: services/rag/Dockerfile
+    container_name: mediquery-rag
+    # NO ports exposed — internal only, accessed by api service only
+    expose:
+      - "5000"
+    environment:
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME}
+      - PINECONE_CLOUD=${PINECONE_CLOUD}
+      - PINECONE_REGION=${PINECONE_REGION}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - FLASK_PORT=5000
+      - FLASK_DEBUG=false
+    networks:
+      - mediquery-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # give time for model download on first run
+
+  # ─── Express API Service ──────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    container_name: mediquery-api
+    ports:
+      - "8005:8005"  # exposed to host — React talks to this
+    environment:
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - JWT_SECRET=${JWT_SECRET}
+      - EXPRESS_PORT=8005
+      - EXPRESS_URL=${EXPRESS_URL}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - FLASK_SERVICE_URL=http://rag:5000  # internal Docker DNS
+    networks:
+      - mediquery-net
+    depends_on:
+      rag:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─── React Frontend ───────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: services/frontend/Dockerfile
+    container_name: mediquery-frontend
+    ports:
+      - "3001:3000"  # exposed to host — users visit this
+    networks:
+      - mediquery-net
+    depends_on:
+      - api
+    restart: unless-stopped
+
+# ---------------------------------------------------------------------------
+# Internal network — services communicate by name (e.g. http://rag:5000)
+# ---------------------------------------------------------------------------
+networks:
+  mediquery-net:
+    driver: bridge

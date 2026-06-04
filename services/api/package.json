@@ -1,0 +1,33 @@
+{
+    "name": "mediquery-api",
+    "version": "1.0.0",
+    "description": "MediQuery Express API — auth proxy layer",
+    "main": "dist/server.js",
+    "scripts": {
+      "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+      "dev:8001": "cross-env EXPRESS_PORT=8001 EXPRESS_URL=http://localhost:8001 ts-node-dev --respawn --transpile-only src/server.ts",
+      "dev:8002": "cross-env EXPRESS_PORT=8002 EXPRESS_URL=http://localhost:8002 ts-node-dev --respawn --transpile-only src/server.ts",
+      "dev:8003": "cross-env EXPRESS_PORT=8003 EXPRESS_URL=http://localhost:8003 ts-node-dev --respawn --transpile-only src/server.ts",
+      "dev:8004": "cross-env EXPRESS_PORT=8004 EXPRESS_URL=http://localhost:8004 ts-node-dev --respawn --transpile-only src/server.ts",
+      "dev:8005": "cross-env EXPRESS_PORT=8005 EXPRESS_URL=http://localhost:8005 ts-node-dev --respawn --transpile-only src/server.ts",
+      "build": "tsc",
+      "start": "node dist/server.js"
+    },
+    "dependencies": {
+      "axios": "^1.7.2",
+      "cors": "^2.8.5",
+      "dotenv": "^16.4.5",
+      "express": "^4.19.2",
+      "jsonwebtoken": "^9.0.2",
+      "google-auth-library": "^9.11.0"
+    },
+    "devDependencies": {
+      "@types/cors": "^2.8.17",
+      "@types/express": "^4.17.21",
+      "@types/jsonwebtoken": "^9.0.6",
+      "@types/node": "^20.14.2",
+      "cross-env": "^7.0.3",
+      "ts-node-dev": "^2.0.0",
+      "typescript": "^5.4.5"
+    }
+  }
