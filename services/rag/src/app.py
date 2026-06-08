@@ -38,8 +38,16 @@ from generation.prompt import (
     is_refusal_answer,
 )
 from generation.llm import generate_answer
+from generation.confidence import compute_confidence
 
 _SRC_DIR = Path(__file__).resolve().parent
+
+
+def _count_indexed_documents() -> int:
+    docs_dir = _resolve_documents_dir()
+    if not docs_dir.exists():
+        return 0
+    return len(list(docs_dir.glob("*.pdf")))
 
 
 def _resolve_documents_dir() -> Path:
@@ -140,10 +148,13 @@ def query():
         # Step 1 — retrieve relevant chunks from Pinecone
         chunks = retrieve(question)
 
+        total_documents = _count_indexed_documents()
+
         if not chunks:
             return jsonify({
                 "answer": "I could not find any relevant information in the indexed documents.",
-                "citations": []
+                "citations": [],
+                "confidence": compute_confidence([], total_documents),
             })
 
         # Step 2 — build RAG prompt (history helps resolve follow-ups like "that")
@@ -158,15 +169,20 @@ def query():
             )
             answer = generate_answer(messages)
 
-        # Step 4 — assemble citations for frontend
+        # Step 4 — assemble citations + confidence for frontend
         citations = extract_citations(chunks)
+        confidence = compute_confidence(chunks, total_documents)
         answer = clean_hedged_answer(answer)
 
-        print(f"[/query] Done — {len(citations)} citations")
+        print(
+            f"[/query] Done — {len(citations)} citations, "
+            f"confidence={confidence['tier']} ({confidence['score_percent']}%)"
+        )
 
         return jsonify({
-            "answer":    answer,
-            "citations": citations,
+            "answer":     answer,
+            "citations":  citations,
+            "confidence": confidence,
         })
 
     except EnvironmentError as e:
