@@ -21,7 +21,7 @@ BATCHING:
 
 import os
 import time
-from typing import Generator
+from typing import Callable, Generator
 from dotenv import load_dotenv
 
 # Pinecone v3+ API
@@ -99,12 +99,17 @@ def _get_pinecone_index():
     return _pinecone_index
 
 
-def embed_chunks(chunks: list[dict]) -> list[dict]:
+def embed_chunks(
+    chunks: list[dict],
+    *,
+    on_batch_progress: Callable[[int, int], None] | None = None,
+) -> list[dict]:
     """
     Add an 'embedding' field to each chunk dict.
 
     Args:
         chunks: Output from chunker.chunk_pages()
+        on_batch_progress: Optional callback(current, total) after each encode batch.
 
     Returns:
         Same list with 'embedding' added to each item:
@@ -112,29 +117,42 @@ def embed_chunks(chunks: list[dict]) -> list[dict]:
     """
     model = _get_embedding_model()
     texts = [c["text"] for c in chunks]
+    encode_batch_size = 32
+    total = len(chunks)
 
-    print(f"  [uploader] Embedding {len(chunks)} chunks...")
-    # batch_size=32 is a good default for CPU — increase if you have GPU
-    embeddings = model.encode(
-        texts,
-        batch_size=32,
-        show_progress_bar=True,
-        convert_to_numpy=True,
-    )
+    print(f"  [uploader] Embedding {total} chunks...")
 
-    for chunk, vector in zip(chunks, embeddings):
+    all_embeddings = []
+    for start in range(0, total, encode_batch_size):
+        batch_texts = texts[start : start + encode_batch_size]
+        batch_vectors = model.encode(
+            batch_texts,
+            batch_size=encode_batch_size,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
+        all_embeddings.extend(batch_vectors)
+        if on_batch_progress:
+            on_batch_progress(min(start + len(batch_texts), total), total)
+
+    for chunk, vector in zip(chunks, all_embeddings):
         chunk["embedding"] = vector.tolist()
 
     print(f"  [uploader] Embedding complete OK ({EMBEDDING_DIM}-dim vectors)")
     return chunks
 
 
-def upsert_to_pinecone(chunks: list[dict]) -> int:
+def upsert_to_pinecone(
+    chunks: list[dict],
+    *,
+    on_batch_progress: Callable[[int, int], None] | None = None,
+) -> int:
     """
     Upsert embedded chunks into Pinecone.
 
     Args:
         chunks: Chunks with 'embedding' field (output of embed_chunks)
+        on_batch_progress: Optional callback(current, total) after each upsert batch.
 
     Returns:
         Total number of vectors upserted.
@@ -143,8 +161,9 @@ def upsert_to_pinecone(chunks: list[dict]) -> int:
 
     total_upserted = 0
     batches = list(_batch(chunks, UPSERT_BATCH_SIZE))
+    total = len(chunks)
 
-    print(f"  [uploader] Upserting {len(chunks)} vectors in {len(batches)} batches...")
+    print(f"  [uploader] Upserting {total} vectors in {len(batches)} batches...")
 
     for batch_num, batch in enumerate(batches, start=1):
         vectors = []
@@ -162,10 +181,32 @@ def upsert_to_pinecone(chunks: list[dict]) -> int:
 
         index.upsert(vectors=vectors)
         total_upserted += len(vectors)
+        if on_batch_progress:
+            on_batch_progress(total_upserted, total)
         print(f"  [uploader] Batch {batch_num}/{len(batches)} — {total_upserted} vectors upserted so far")
 
     print(f"  [uploader] Upsert complete OK - {total_upserted} total vectors in Pinecone")
     return total_upserted
+
+
+def delete_vectors_by_source(source_filename: str) -> int:
+    """
+    Delete all Pinecone vectors whose metadata.source matches the filename.
+
+    Args:
+        source_filename: Exact PDF filename (e.g. "Metformin.pdf").
+
+    Returns:
+        Number of vectors deleted (best-effort from Pinecone response).
+    """
+    index = _get_pinecone_index()
+    response = index.delete(filter={"source": {"$eq": source_filename}})
+    deleted = getattr(response, "deleted_count", None)
+    if deleted is None and isinstance(response, dict):
+        deleted = response.get("deleted_count", 0)
+    count = int(deleted or 0)
+    print(f"  [uploader] Deleted {count} vectors for source '{source_filename}'")
+    return count
 
 
 def _batch(items: list, size: int) -> Generator:

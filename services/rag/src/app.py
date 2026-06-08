@@ -21,16 +21,27 @@ PIPELINE ON EVERY REQUEST:
 
 import sys
 import os
+import threading
 from pathlib import Path
 
 # Make sure Python can find sibling modules
 sys.path.insert(0, str(Path(__file__).parent))
 
+import fitz  # PyMuPDF — validate uploads
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 
 from retrieval.search import retrieve
+from ingestion.pipeline import ingest_pdf, IngestError
+from ingestion.uploader import delete_vectors_by_source
+from ingestion.job_store import (
+    create_job,
+    complete_job,
+    fail_job,
+    get_job,
+    make_progress_callback,
+)
 from generation.prompt import (
     build_prompt,
     clean_hedged_answer,
@@ -41,6 +52,7 @@ from generation.llm import generate_answer
 from generation.confidence import compute_confidence
 
 _SRC_DIR = Path(__file__).resolve().parent
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB — large clinical PDFs (200–300 pages)
 
 
 def _count_indexed_documents() -> int:
@@ -219,6 +231,147 @@ def documents():
     return jsonify({"documents": pdf_files})
 
 
+def _sanitize_filename(raw: str) -> str | None:
+    """Strip path components; return None if not a .pdf filename."""
+    name = os.path.basename(raw or "").strip()
+    if not name or not name.lower().endswith(".pdf"):
+        return None
+    return name
+
+
+def _validate_pdf_file(path: Path) -> str | None:
+    """Return an error message if the file is not a readable PDF."""
+    try:
+        with fitz.open(str(path)) as doc:
+            if len(doc) == 0:
+                return "File could not be opened as a PDF"
+    except Exception:
+        return "File could not be opened as a PDF"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Upload endpoint — save PDF + run ingestion pipeline
+# ---------------------------------------------------------------------------
+@app.route("/upload", methods=["POST"])
+def upload():
+    """
+    Receive a PDF from Express, save to documents/, index into Pinecone.
+
+    multipart/form-data field: file
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "Request must include a 'file' field"}), 400
+
+    upload_file = request.files["file"]
+    if not upload_file or not upload_file.filename:
+        return jsonify({"error": "No file provided"}), 400
+
+    if request.content_length and request.content_length > MAX_UPLOAD_BYTES:
+        return jsonify({"error": "File exceeds 50MB limit"}), 413
+
+    filename = _sanitize_filename(upload_file.filename)
+    if not filename:
+        return jsonify({"error": "Only PDF files are supported"}), 400
+
+    docs_dir = _resolve_documents_dir()
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    dest = docs_dir / filename
+
+    reindexed = dest.exists()
+
+    try:
+        upload_file.save(str(dest))
+    except OSError as exc:
+        print(f"[/upload] Save failed: {exc}")
+        return jsonify({"error": "Failed to save uploaded file"}), 500
+
+    if dest.stat().st_size > MAX_UPLOAD_BYTES:
+        dest.unlink(missing_ok=True)
+        return jsonify({"error": "File exceeds 50MB limit"}), 413
+
+    pdf_error = _validate_pdf_file(dest)
+    if pdf_error:
+        dest.unlink(missing_ok=True)
+        return jsonify({"error": pdf_error}), 400
+
+    job_id = create_job(docs_dir, filename, reindexed=reindexed)
+    print(f"\n[/upload] Job {job_id}: {filename}" + (" (re-index)" if reindexed else ""))
+
+    def run_ingestion() -> None:
+        on_progress = make_progress_callback(docs_dir, job_id)
+        try:
+            result = ingest_pdf(
+                dest,
+                reindexed=reindexed,
+                on_progress=on_progress,
+            )
+            complete_job(docs_dir, job_id, result)
+        except IngestError as exc:
+            print(f"[/upload] Ingest error: {exc.message}")
+            job = get_job(docs_dir, job_id)
+            fail_job(
+                docs_dir,
+                job_id,
+                exc.message,
+                stage=job.get("stage") if job else None,
+            )
+        except Exception as exc:
+            dest.unlink(missing_ok=True)
+            print(f"[/upload] Unexpected error: {exc}")
+            fail_job(docs_dir, job_id, "Indexing failed — file was not added")
+
+    threading.Thread(target=run_ingestion, daemon=True).start()
+
+    return jsonify({
+        "job_id": job_id,
+        "filename": filename,
+        "status": "accepted",
+        "reindexed": reindexed,
+    }), 202
+
+
+@app.route("/upload/status/<job_id>", methods=["GET"])
+def upload_status(job_id: str):
+    """Poll ingestion progress for an upload job."""
+    docs_dir = _resolve_documents_dir()
+    job = get_job(docs_dir, job_id)
+    if not job:
+        return jsonify({"error": "Upload job not found"}), 404
+    return jsonify(job)
+
+
+# ---------------------------------------------------------------------------
+# Delete endpoint — remove PDF + Pinecone vectors
+# ---------------------------------------------------------------------------
+@app.route("/delete/<path:filename>", methods=["DELETE"])
+def delete_document(filename: str):
+    """Delete a document from disk and remove its vectors from Pinecone."""
+    safe_name = _sanitize_filename(filename)
+    if not safe_name:
+        return jsonify({"error": "Invalid filename"}), 400
+
+    docs_dir = _resolve_documents_dir()
+    dest = docs_dir / safe_name
+
+    if not dest.exists():
+        return jsonify({"error": "Document not found"}), 404
+
+    print(f"\n[/delete] Removing: {safe_name}")
+
+    try:
+        vectors_deleted = delete_vectors_by_source(safe_name)
+        dest.unlink()
+        return jsonify({
+            "status": "deleted",
+            "filename": safe_name,
+            "vectors_deleted": vectors_deleted,
+        })
+    except Exception as exc:
+        print(f"[/delete] Error: {exc}")
+        return jsonify({"error": "Failed to delete document"}), 500
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -231,6 +384,9 @@ if __name__ == "__main__":
     print(f"   GET  /health")
     print(f"   POST /query")
     print(f"   GET  /documents")
+    print(f"   POST /upload")
+    print(f"   GET  /upload/status/<job_id>")
+    print(f"   DELETE /delete/<filename>")
     print(f" Debug mode: {debug}\n")
 
     app.run(host="0.0.0.0", port=port, debug=debug)

@@ -29,12 +29,30 @@ spec:
       labels:
         app: rag
     spec:
+      initContainers:
+        - name: seed-documents
+          image: mediquery-rag:latest
+          imagePullPolicy: Never
+          command:
+            - sh
+            - -c
+            - |
+              if [ -z "$(ls -A /documents 2>/dev/null)" ]; then
+                echo "Seeding empty documents volume from image..."
+                cp -r /app/documents-seed/. /documents/
+              fi
+          volumeMounts:
+            - name: documents-volume
+              mountPath: /documents
       containers:
         - name: rag
           image: mediquery-rag:latest
           imagePullPolicy: Never
           ports:
             - containerPort: 5000
+          volumeMounts:
+            - name: documents-volume
+              mountPath: /app/documents
           env:
             # Secrets — pulled from Secret object
             - name: PINECONE_API_KEY
@@ -101,6 +119,10 @@ spec:
             limits:
               memory: "1Gi"
               cpu: "1000m"
+      volumes:
+        - name: documents-volume
+          persistentVolumeClaim:
+            claimName: mediquery-documents-pvc
 
 ---
 # Service — gives Flask a stable internal DNS name: http://rag-service:5000

@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy RAG source code
 COPY services/rag/src/ ./src/
 
-# Copy documents folder
+# Seed PDFs baked into image; runtime uploads use /app/documents (volume in Compose/K8s)
+COPY documents/ ./documents-seed/
 COPY documents/ ./documents/
 
 # HuggingFace model cache — pre-download at build time

@@ -1,0 +1,16 @@
+# k8s/documents-pvc.yaml
+#
+# Persistent storage for uploaded PDFs shared across RAG pods.
+# ReadWriteOnce is sufficient for Minikube single-node clusters.
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mediquery-documents-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

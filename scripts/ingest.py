@@ -29,7 +29,6 @@ IDEMPOTENCY:
 
 import sys
 import os
-import time
 from pathlib import Path
 
 # Windows consoles often default to cp1252; allow Unicode status symbols in logs
@@ -43,9 +42,7 @@ if hasattr(sys.stdout, "reconfigure"):
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT / "services/rag/src"))
 
-from ingestion.parser import parse_pdf
-from ingestion.chunker import chunk_pages
-from ingestion.uploader import embed_chunks, upsert_to_pinecone
+from ingestion.pipeline import ingest_pdf, IngestError
 
 
 DOCUMENTS_DIR = _PROJECT_ROOT / "documents"
@@ -61,47 +58,22 @@ def ingest_file(pdf_path: Path) -> dict:
     print(f"  Ingesting: {pdf_path.name}")
     print(f"{'='*60}")
 
-    start = time.time()
+    reindexed = pdf_path.exists()
+    try:
+        result = ingest_pdf(pdf_path, reindexed=reindexed)
+    except IngestError as exc:
+        print(f"  WARNING: {exc.message}")
+        reason = "no text" if "image-only" in exc.message.lower() else "error"
+        return {"file": pdf_path.name, "status": "skipped", "reason": reason}
 
-    # Step 1 — Parse
-    print(f"\n[1/3] Parsing PDF...")
-    pages = parse_pdf(str(pdf_path))
-
-    if not pages:
-        print(f"  WARNING: No text extracted from {pdf_path.name} - skipping.")
-        print(f"  (Is this a scanned/image PDF? OCR not supported in Ring 1.)")
-        return {"file": pdf_path.name, "status": "skipped", "reason": "no text"}
-
-    # Step 2 — Chunk
-    print(f"\n[2/3] Chunking text...")
-    chunks = chunk_pages(pages, pdf_path.name)
-
-    if not chunks:
-        print(f"  WARNING: No chunks produced - skipping.")
-        return {"file": pdf_path.name, "status": "skipped", "reason": "no chunks"}
-
-    # Step 3 — Embed + Upsert
-    print(f"\n[3/3] Embedding and uploading to Pinecone...")
-    embedded_chunks = embed_chunks(chunks)
-    total_vectors = upsert_to_pinecone(embedded_chunks)
-
-    elapsed = time.time() - start
-
-    summary = {
-        "file":     pdf_path.name,
-        "status":   "success",
-        "pages":    len(pages),
-        "chunks":   len(chunks),
-        "vectors":  total_vectors,
-        "elapsed":  f"{elapsed:.1f}s",
+    return {
+        "file":    result["filename"],
+        "status":  "success",
+        "pages":   result["pages"],
+        "chunks":  result["chunks"],
+        "vectors": result["vectors"],
+        "elapsed": result["elapsed"],
     }
-
-    print(f"\n  Done in {elapsed:.1f}s")
-    print(f"    Pages parsed:   {len(pages)}")
-    print(f"    Chunks created: {len(chunks)}")
-    print(f"    Vectors stored: {total_vectors}")
-
-    return summary
 
 
 def main():

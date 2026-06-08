@@ -23,6 +23,7 @@ dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 
 import authRoutes from "./routes/auth";
 import queryRoutes from "./routes/query";
+import uploadRoutes from "./routes/upload";
 import { authGuard } from "./middleware/authGuard";
 
 const app = express();
@@ -52,6 +53,7 @@ app.use("/auth", authRoutes);
 // Protected routes (JWT required)
 // ---------------------------------------------------------------------------
 app.use("/api", authGuard, queryRoutes);
+app.use("/api", authGuard, uploadRoutes);
 
 // ---------------------------------------------------------------------------
 // 404 handler
@@ -73,6 +75,9 @@ app.listen(PORT, () => {
   console.log(` Protected routes (JWT required):`);
   console.log(`   POST /api/query`);
   console.log(`   GET  /api/documents`);
+  console.log(`   POST /api/upload`);
+  console.log(`   GET  /api/upload/status/:jobId`);
+  console.log(`   DELETE /api/documents/:filename`);
   console.log(` Flask service: ${process.env.FLASK_SERVICE_URL || "http://localhost:5000"}\n`);
 });
 

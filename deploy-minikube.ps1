@@ -140,6 +140,7 @@ Invoke-Native -Label "kubectl apply configmap" { kubectl apply -f k8s/configmap.
 Invoke-Native -Label "kubectl apply secret" { kubectl apply -f k8s/secret.yaml }
 
 Write-Host "[5/6] Deploying services, ingress, HPA..."
+Invoke-Native -Label "kubectl apply documents pvc" { kubectl apply -f k8s/documents-pvc.yaml }
 Invoke-Native -Label "kubectl apply rag" { kubectl apply -f k8s/rag-deployment.yaml }
 Invoke-Native -Label "kubectl apply api" { kubectl apply -f k8s/api-deployment.yaml }
 Invoke-Native -Label "kubectl apply frontend" { kubectl apply -f k8s/frontend-deployment.yaml }
