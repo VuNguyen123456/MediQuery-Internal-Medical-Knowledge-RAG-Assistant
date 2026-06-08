@@ -65,7 +65,27 @@ Do NOT use the phrase "I could not find information about this in the indexed do
 """
 
 
-def build_prompt(question: str, chunks: list[dict], *, retry: bool = False) -> list[dict]:
+def _build_history_block(conversation_history: list[dict] | None) -> str:
+    """Format prior Q&A turns for follow-up questions (e.g. resolving 'that')."""
+    if not conversation_history:
+        return ""
+
+    lines = ["CONVERSATION HISTORY:"]
+    for i, turn in enumerate(conversation_history, 1):
+        lines.append(f"Q{i}: {turn['question']}")
+        lines.append(f"A{i}: {turn['answer']}")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+def build_prompt(
+    question: str,
+    chunks: list[dict],
+    *,
+    retry: bool = False,
+    conversation_history: list[dict] | None = None,
+) -> list[dict]:
     """
     Build the message list for the Gemini API call.
 
@@ -91,8 +111,14 @@ def build_prompt(question: str, chunks: list[dict], *, retry: bool = False) -> l
     else:
         context_block = _build_context_block(chunks)
 
-    full_prompt = f"""{SYSTEM_PROMPT}
+    history_block = _build_history_block(conversation_history)
+    history_section = f"""
+---
+{history_block}
+---""" if history_block else ""
 
+    full_prompt = f"""{SYSTEM_PROMPT}
+{history_section}
 ---
 DOCUMENT EXCERPTS:
 {context_block}

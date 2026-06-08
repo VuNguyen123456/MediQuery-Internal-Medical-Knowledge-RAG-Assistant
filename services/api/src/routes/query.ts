@@ -27,20 +27,53 @@ const RAG_QUERY_TIMEOUT_MS = Number(process.env.RAG_QUERY_TIMEOUT_MS) || 120000;
 // ---------------------------------------------------------------------------
 // POST /api/query — run RAG pipeline
 // ---------------------------------------------------------------------------
+interface HistoryTurn {
+  question: string;
+  answer: string;
+}
+
+function sanitizeHistory(raw: unknown): HistoryTurn[] {
+  if (!Array.isArray(raw)) return [];
+
+  const turns: HistoryTurn[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const { question, answer } = item as Record<string, unknown>;
+    if (typeof question !== "string" || typeof answer !== "string") continue;
+    const q = question.trim();
+    const a = answer.trim();
+    if (q && a) turns.push({ question: q, answer: a });
+  }
+
+  return turns.slice(-3);
+}
+
 router.post("/query", async (req: AuthenticatedRequest, res: Response) => {
-  const { question } = req.body;
+  const { question, history } = req.body;
 
   if (!question || typeof question !== "string" || !question.trim()) {
     res.status(400).json({ error: "Request body must include a non-empty 'question' field" });
     return;
   }
 
-  console.log(`[/api/query] User: ${req.user?.email} | Question: ${question.slice(0, 60)}...`);
+  const conversationHistory = sanitizeHistory(history);
+
+  console.log(
+    `[/api/query] User: ${req.user?.email} | Question: ${question.slice(0, 60)}...` +
+      (conversationHistory.length ? ` | History: ${conversationHistory.length} turn(s)` : "")
+  );
 
   try {
+    const flaskBody: { question: string; history?: HistoryTurn[] } = {
+      question: question.trim(),
+    };
+    if (conversationHistory.length > 0) {
+      flaskBody.history = conversationHistory;
+    }
+
     const flaskResponse = await axios.post(
       `${FLASK_URL}/query`,
-      { question: question.trim() },
+      flaskBody,
       {
         headers: { "Content-Type": "application/json" },
         timeout: RAG_QUERY_TIMEOUT_MS,

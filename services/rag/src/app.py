@@ -81,7 +81,18 @@ def query():
     Run the full RAG pipeline for a user question.
 
     Request body:
-        { "question": "What are the side effects of Metformin?" }
+        {
+          "question": "Is that safe for elderly patients?",
+          "history": [
+            {
+              "question": "What are the side effects of Metformin?",
+              "answer": "Metformin commonly causes..."
+            }
+          ]
+        }
+
+        history is optional — up to 3 prior Q&A pairs for follow-up context.
+        Pinecone search still uses only the current question.
 
     Response:
         {
@@ -110,7 +121,20 @@ def query():
     if not question:
         return jsonify({"error": "Question cannot be empty"}), 400
 
+    conversation_history = []
+    raw_history = data.get("history") or []
+    if isinstance(raw_history, list):
+        for turn in raw_history[-3:]:
+            if not isinstance(turn, dict):
+                continue
+            q = str(turn.get("question", "")).strip()
+            a = str(turn.get("answer", "")).strip()
+            if q and a:
+                conversation_history.append({"question": q, "answer": a})
+
     print(f"\n[/query] Question: {question}")
+    if conversation_history:
+        print(f"[/query] History: {len(conversation_history)} turn(s)")
 
     try:
         # Step 1 — retrieve relevant chunks from Pinecone
@@ -122,14 +146,16 @@ def query():
                 "citations": []
             })
 
-        # Step 2 — build RAG prompt
-        messages = build_prompt(question, chunks)
+        # Step 2 — build RAG prompt (history helps resolve follow-ups like "that")
+        messages = build_prompt(question, chunks, conversation_history=conversation_history)
 
         # Step 3 — call Gemini (retry once if it refuses despite relevant chunks)
         answer = generate_answer(messages)
         if chunks and is_refusal_answer(answer):
             print("[/query] Model refused despite retrieved chunks — retrying with stricter prompt")
-            messages = build_prompt(question, chunks, retry=True)
+            messages = build_prompt(
+                question, chunks, retry=True, conversation_history=conversation_history
+            )
             answer = generate_answer(messages)
 
         # Step 4 — assemble citations for frontend
