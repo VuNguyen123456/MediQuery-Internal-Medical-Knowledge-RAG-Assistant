@@ -15,7 +15,11 @@ MediQuery solves this by letting authenticated users ask questions in plain Engl
 ## Demo
 
 # Video Walkthrough
+introduction walkthough
 https://www.loom.com/share/fd4576d6345144b2866d4cc70903102b
+
+quality of life update
+https://www.loom.com/share/dfbfe0cb2aa04416b15c4b5f230d37a5
 
 # Screenshots
 Login Page
