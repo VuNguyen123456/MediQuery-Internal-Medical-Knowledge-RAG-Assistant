@@ -1,0 +1,58 @@
+{
+  "drugs": {
+    "metformin": {
+      "canonical_name": "Metformin",
+      "display_name": "Metformin",
+      "source_pdf": "Metformin.pdf",
+      "aliases": [
+        "metformin",
+        "glucophage",
+        "metformin xr",
+        "metformin hydrochloride",
+        "fortamet",
+        "glumetza"
+      ],
+      "indication": "Type 2 diabetes mellitus",
+      "drug_class": "Biguanide",
+      "role": "First-line therapy",
+      "max_dose": "See FDA label — typically up to 2000–2550 mg/day in divided doses",
+      "contraindications": [
+        "Severe renal impairment",
+        "Acute or chronic metabolic acidosis",
+        "Hypersensitivity to metformin"
+      ],
+      "common_adverse_effects": [
+        "Nausea",
+        "Vomiting",
+        "Diarrhea",
+        "Abdominal discomfort"
+      ]
+    },
+    "lisinopril": {
+      "canonical_name": "Lisinopril",
+      "display_name": "Lisinopril",
+      "source_pdf": "Lisinopril.pdf",
+      "aliases": [
+        "lisinopril",
+        "zestril",
+        "prinivil",
+        "qbrelis"
+      ],
+      "indication": "Hypertension, heart failure, post-MI",
+      "drug_class": "ACE inhibitor",
+      "role": "Antihypertensive",
+      "max_dose": "See FDA label — typically up to 40 mg/day for hypertension",
+      "contraindications": [
+        "History of angioedema with ACE inhibitors",
+        "Concomitant use with aliskiren in patients with diabetes",
+        "Pregnancy"
+      ],
+      "common_adverse_effects": [
+        "Cough",
+        "Dizziness",
+        "Headache",
+        "Hypotension"
+      ]
+    }
+  }
+}

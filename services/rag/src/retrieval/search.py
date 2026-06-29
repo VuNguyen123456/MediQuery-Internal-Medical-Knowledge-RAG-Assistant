@@ -74,6 +74,25 @@ def _get_pinecone_index():
     return _pinecone_index
 
 
+def _match_to_chunk(match) -> dict:
+    metadata = match.metadata or {}
+    chunk = {
+        "text":        metadata.get("text", ""),
+        "source":      metadata.get("source", "unknown"),
+        "source_basename": metadata.get("source_basename", ""),
+        "page":        metadata.get("page", 0),
+        "chunk_index": metadata.get("chunk_index", 0),
+        "score":       round(float(match.score), 4),
+    }
+    drugs = metadata.get("drugs")
+    if isinstance(drugs, list):
+        chunk["drugs"] = drugs
+    drug_pair = metadata.get("drug_pair")
+    if drug_pair:
+        chunk["drug_pair"] = drug_pair
+    return chunk
+
+
 def retrieve(question: str, top_k: int = TOP_K) -> list[dict]:
     """
     Convert a question to a vector and retrieve the most relevant chunks.
@@ -105,23 +124,64 @@ def retrieve(question: str, top_k: int = TOP_K) -> list[dict]:
         include_metadata=True,   # we need text, source, page back
     )
 
-    # Step 3 — extract and return clean chunk dicts
-    chunks = []
-    for match in results.matches:
-        metadata = match.metadata or {}
-        chunks.append({
-            "text":        metadata.get("text", ""),
-            "source":      metadata.get("source", "unknown"),
-            "page":        metadata.get("page", 0),
-            "chunk_index": metadata.get("chunk_index", 0),
-            "score":       round(float(match.score), 4),
-        })
+    chunks = [_match_to_chunk(match) for match in results.matches]
 
     print(f"  [search] '{question[:60]}...' → {len(chunks)} chunks retrieved")
     for c in chunks:
         print(f"    score={c['score']} | {c['source']} p.{c['page']} | {c['text'][:60]}...")
 
     return chunks
+
+
+def retrieve_filtered(
+    question: str,
+    *,
+    metadata_filter: dict,
+    top_k: int = TOP_K,
+) -> list[dict]:
+    """Semantic search with a Pinecone metadata filter."""
+    if not question or not question.strip():
+        raise ValueError("Question cannot be empty")
+
+    model = _get_embedding_model()
+    question_vector = model.encode(question, convert_to_numpy=True).tolist()
+
+    index = _get_pinecone_index()
+    results = index.query(
+        vector=question_vector,
+        top_k=top_k,
+        include_metadata=True,
+        filter=metadata_filter,
+    )
+
+    chunks = [_match_to_chunk(match) for match in results.matches]
+    print(
+        f"  [search/filter] '{question[:50]}...' filter={metadata_filter} "
+        f"→ {len(chunks)} chunks"
+    )
+    return chunks
+
+
+def retrieve_for_source(
+    question: str,
+    *,
+    source_pdf: str,
+    top_k: int = TOP_K,
+) -> list[dict]:
+    """Semantic search limited to chunks from a specific document."""
+    basename = source_pdf.replace("\\", "/").split("/")[-1]
+    metadata_filter = {
+        "$or": [
+            {"source": {"$eq": source_pdf}},
+            {"source": {"$eq": basename}},
+            {"source_basename": {"$eq": basename}},
+        ]
+    }
+    return retrieve_filtered(
+        question,
+        metadata_filter=metadata_filter,
+        top_k=top_k,
+    )
 
 
 if __name__ == "__main__":

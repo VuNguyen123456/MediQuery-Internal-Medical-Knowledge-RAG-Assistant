@@ -1,0 +1,24 @@
+{
+  "sections": [
+    {
+      "id": "drug-labels",
+      "label": "Drug Labels",
+      "order": 1
+    },
+    {
+      "id": "guidelines",
+      "label": "Clinical Guidelines",
+      "order": 2
+    },
+    {
+      "id": "vaccines",
+      "label": "Vaccines & Immunization",
+      "order": 3
+    },
+    {
+      "id": "toolkits",
+      "label": "Clinical Toolkits",
+      "order": 4
+    }
+  ]
+}

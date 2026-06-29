@@ -50,34 +50,40 @@ from generation.prompt import (
 )
 from generation.llm import generate_answer
 from generation.confidence import compute_confidence
+from drugs.detection import detect_drugs_from_conversation
+from drugs.interactions import screen_drugs, DISCLAIMER as INTERACTION_DISCLAIMER
+from drugs.precautions import screen_drug_precautions
+from drugs.registry import get_profile, list_profiles, drugs_in_knowledge_base, normalize_drug_id
+from vaccines.detection import detect_vaccines_from_conversation
+from vaccines.precautions import screen_vaccines, DISCLAIMER as VACCINE_DISCLAIMER
+from vaccines.registry import (
+    get_profile as get_vaccine_profile,
+    list_profiles as list_vaccine_profiles,
+    vaccines_in_knowledge_base,
+    normalize_vaccine_id,
+)
+from documents.catalog import (
+    build_documents_payload,
+    count_pdfs,
+    destination_for_upload,
+    find_pdf_by_path,
+    load_sections,
+    resolve_documents_root,
+)
 
 _SRC_DIR = Path(__file__).resolve().parent
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB — large clinical PDFs (200–300 pages)
 
 
 def _count_indexed_documents() -> int:
-    docs_dir = _resolve_documents_dir()
-    if not docs_dir.exists():
-        return 0
-    return len(list(docs_dir.glob("*.pdf")))
+    return count_pdfs()
 
 
 def _resolve_documents_dir() -> Path:
-    """
-    PDF folder for the sidebar list.
-    Docker image: /app/documents (WORKDIR /app, src at /app/src).
-    Local dev: project_root/documents (four levels up from src).
-    """
-    for candidate in (
-        _SRC_DIR.parent / "documents",
-        _SRC_DIR.parent.parent.parent.parent / "documents",
-    ):
-        if candidate.is_dir():
-            return candidate
-    return _SRC_DIR.parent / "documents"
+    return resolve_documents_root()
 
 
-load_dotenv(_SRC_DIR.parent.parent.parent.parent / ".env")
+load_dotenv(_SRC_DIR.parent.parent.parent / ".env")
 
 app = Flask(__name__)
 CORS(app)  # Express is on a different port — CORS needed for local dev
@@ -157,6 +163,18 @@ def query():
         print(f"[/query] History: {len(conversation_history)} turn(s)")
 
     try:
+        docs_dir = _resolve_documents_dir()
+        drug_context = detect_drugs_from_conversation(
+            question,
+            conversation_history,
+            docs_dir=docs_dir,
+        )
+        vaccine_context = detect_vaccines_from_conversation(
+            question,
+            conversation_history,
+            docs_dir=docs_dir,
+        )
+
         # Step 1 — retrieve relevant chunks from Pinecone
         chunks = retrieve(question)
 
@@ -167,6 +185,12 @@ def query():
                 "answer": "I could not find any relevant information in the indexed documents.",
                 "citations": [],
                 "confidence": compute_confidence([], total_documents),
+                "detected_drugs": drug_context["detected_drugs"],
+                "knowledge_base_drugs": drug_context["knowledge_base_drugs"],
+                "drug_profiles": drug_context["profiles"],
+                "detected_vaccines": vaccine_context["detected_vaccines"],
+                "knowledge_base_vaccines": vaccine_context["knowledge_base_vaccines"],
+                "vaccine_profiles": vaccine_context["profiles"],
             })
 
         # Step 2 — build RAG prompt (history helps resolve follow-ups like "that")
@@ -195,6 +219,12 @@ def query():
             "answer":     answer,
             "citations":  citations,
             "confidence": confidence,
+            "detected_drugs": drug_context["detected_drugs"],
+            "knowledge_base_drugs": drug_context["knowledge_base_drugs"],
+            "drug_profiles": drug_context["profiles"],
+            "detected_vaccines": vaccine_context["detected_vaccines"],
+            "knowledge_base_vaccines": vaccine_context["knowledge_base_vaccines"],
+            "vaccine_profiles": vaccine_context["profiles"],
         })
 
     except EnvironmentError as e:
@@ -214,21 +244,215 @@ def query():
 @app.route("/documents", methods=["GET"])
 def documents():
     """
-    Return a list of indexed document names.
-    Used by the React frontend sidebar to show what's in the knowledge base.
-    Reads from the /documents folder — same source of truth as ingestion.
+    Return documents grouped by section for the sidebar.
+    Reads from documents/<section>/*.pdf — same layout as ingestion.
     """
+    payload = build_documents_payload()
+    payload["section_options"] = load_sections()
+    return jsonify(payload)
+
+
+# ---------------------------------------------------------------------------
+# Drug interaction screening
+# ---------------------------------------------------------------------------
+@app.route("/interactions", methods=["POST"])
+def interactions():
+    """
+    Screen drug pairs from indexed documents (on-demand from UI).
+
+    Request body:
+        { "drugs": ["metformin", "lisinopril"], "condition": "optional" }
+
+    Requires at least 2 drug ids from the registry.
+    """
+    data = request.get_json(silent=True) or {}
+    raw_drugs = data.get("drugs") or []
+
+    if not isinstance(raw_drugs, list) or len(raw_drugs) < 2:
+        return jsonify({
+            "error": "Request must include 'drugs' with at least 2 drug names",
+        }), 400
+
     docs_dir = _resolve_documents_dir()
+    kb_ids = set(drugs_in_knowledge_base(docs_dir))
+    normalized: list[str] = []
+    for name in raw_drugs:
+        drug_id = normalize_drug_id(str(name))
+        if not drug_id:
+            return jsonify({"error": f"Unknown drug: {name}"}), 400
+        if drug_id not in kb_ids:
+            return jsonify({
+                "error": f"Drug '{drug_id}' is not in the indexed knowledge base",
+            }), 400
+        if drug_id not in normalized:
+            normalized.append(drug_id)
 
-    if not docs_dir.exists():
-        return jsonify({"documents": []})
+    if len(normalized) < 2:
+        return jsonify({
+            "error": "At least 2 distinct drugs are required for interaction screening",
+        }), 400
 
-    pdf_files = [
-        {"name": f.name, "size_kb": round(f.stat().st_size / 1024, 1)}
-        for f in sorted(docs_dir.glob("*.pdf"))
-    ]
+    condition = data.get("condition")
+    condition_str = str(condition).strip() if condition else None
 
-    return jsonify({"documents": pdf_files})
+    print(f"\n[/interactions] Screening: {normalized}")
+
+    try:
+        result = screen_drugs(normalized, condition=condition_str)
+        return jsonify(result)
+    except Exception as exc:
+        print(f"[/interactions] Error: {exc}")
+        return jsonify({"error": "Interaction screening failed"}), 500
+
+
+@app.route("/drugs", methods=["GET"])
+def drugs_list():
+    """Return drug profiles for drugs in the knowledge base."""
+    docs_dir = _resolve_documents_dir()
+    kb_ids = drugs_in_knowledge_base(docs_dir)
+    return jsonify({
+        "drugs": list_profiles(kb_ids),
+        "disclaimer": INTERACTION_DISCLAIMER,
+    })
+
+
+@app.route("/drugs/<drug_id>", methods=["GET"])
+def drug_detail(drug_id: str):
+    """Return a single drug profile by registry id."""
+    normalized = normalize_drug_id(drug_id) or drug_id.lower()
+    profile = get_profile(normalized)
+    if not profile:
+        return jsonify({"error": "Drug not found in registry"}), 404
+    return jsonify({"drug": profile})
+
+
+# ---------------------------------------------------------------------------
+# Drug precaution screening (drug × patient context)
+# ---------------------------------------------------------------------------
+@app.route("/drug-precautions", methods=["POST"])
+def drug_precautions():
+    """
+    Screen drugs against patient context from indexed label documents.
+
+    Request body:
+        { "drugs": ["metformin"], "condition": "conditions: Pregnancy" }
+
+    Requires at least 1 drug id and a non-empty condition.
+    """
+    data = request.get_json(silent=True) or {}
+    raw_drugs = data.get("drugs") or []
+    condition = data.get("condition")
+
+    if not isinstance(raw_drugs, list) or len(raw_drugs) < 1:
+        return jsonify({
+            "error": "Request must include 'drugs' with at least 1 drug name",
+        }), 400
+
+    condition_str = str(condition).strip() if condition else ""
+    if not condition_str:
+        return jsonify({
+            "error": "Request must include a non-empty 'condition' (patient context)",
+        }), 400
+
+    docs_dir = _resolve_documents_dir()
+    kb_ids = set(drugs_in_knowledge_base(docs_dir))
+    normalized: list[str] = []
+    for name in raw_drugs:
+        drug_id = normalize_drug_id(str(name))
+        if not drug_id:
+            return jsonify({"error": f"Unknown drug: {name}"}), 400
+        if drug_id not in kb_ids:
+            return jsonify({
+                "error": f"Drug '{drug_id}' is not in the indexed knowledge base",
+            }), 400
+        if drug_id not in normalized:
+            normalized.append(drug_id)
+
+    print(f"\n[/drug-precautions] Screening: {normalized} | Condition: {condition_str}")
+
+    try:
+        result = screen_drug_precautions(normalized, condition_str)
+        return jsonify(result)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        print(f"[/drug-precautions] Error: {exc}")
+        return jsonify({"error": "Drug precaution screening failed"}), 500
+
+
+# ---------------------------------------------------------------------------
+# Vaccine precaution screening
+# ---------------------------------------------------------------------------
+@app.route("/vaccine-precautions", methods=["POST"])
+def vaccine_precautions():
+    """
+    Screen vaccines against a patient condition from indexed schedule documents.
+
+    Request body:
+        { "vaccines": ["influenza"], "condition": "pregnancy" }
+
+    Requires at least 1 vaccine id and a non-empty condition.
+    """
+    data = request.get_json(silent=True) or {}
+    raw_vaccines = data.get("vaccines") or []
+    condition = data.get("condition")
+
+    if not isinstance(raw_vaccines, list) or len(raw_vaccines) < 1:
+        return jsonify({
+            "error": "Request must include 'vaccines' with at least 1 vaccine name",
+        }), 400
+
+    condition_str = str(condition).strip() if condition else ""
+    if not condition_str:
+        return jsonify({
+            "error": "Request must include a non-empty 'condition' (patient context)",
+        }), 400
+
+    docs_dir = _resolve_documents_dir()
+    kb_ids = set(vaccines_in_knowledge_base(docs_dir))
+    normalized: list[str] = []
+    for name in raw_vaccines:
+        vaccine_id = normalize_vaccine_id(str(name))
+        if not vaccine_id:
+            return jsonify({"error": f"Unknown vaccine: {name}"}), 400
+        if vaccine_id not in kb_ids:
+            return jsonify({
+                "error": f"Vaccine '{vaccine_id}' is not in the indexed knowledge base",
+            }), 400
+        if vaccine_id not in normalized:
+            normalized.append(vaccine_id)
+
+    print(f"\n[/vaccine-precautions] Screening: {normalized} | Condition: {condition_str}")
+
+    try:
+        result = screen_vaccines(normalized, condition_str)
+        return jsonify(result)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        print(f"[/vaccine-precautions] Error: {exc}")
+        return jsonify({"error": "Vaccine precaution screening failed"}), 500
+
+
+@app.route("/vaccines", methods=["GET"])
+def vaccines_list():
+    """Return vaccine profiles for vaccines in the knowledge base."""
+    docs_dir = _resolve_documents_dir()
+    kb_ids = vaccines_in_knowledge_base(docs_dir)
+    return jsonify({
+        "vaccines": list_vaccine_profiles(kb_ids),
+        "disclaimer": VACCINE_DISCLAIMER,
+    })
+
+
+@app.route("/vaccines/<vaccine_id>", methods=["GET"])
+def vaccine_detail(vaccine_id: str):
+    """Return a single vaccine profile by registry id."""
+    normalized = normalize_vaccine_id(vaccine_id) or vaccine_id.lower()
+    profile = get_vaccine_profile(normalized)
+    if not profile:
+        return jsonify({"error": "Vaccine not found in registry"}), 404
+    return jsonify({"vaccine": profile})
 
 
 def _sanitize_filename(raw: str) -> str | None:
@@ -256,9 +480,9 @@ def _validate_pdf_file(path: Path) -> str | None:
 @app.route("/upload", methods=["POST"])
 def upload():
     """
-    Receive a PDF from Express, save to documents/, index into Pinecone.
+    Receive a PDF from Express, save to documents/<section>/, index into Pinecone.
 
-    multipart/form-data field: file
+    multipart/form-data fields: file, section (section id from sections.json)
     """
     if "file" not in request.files:
         return jsonify({"error": "Request must include a 'file' field"}), 400
@@ -274,9 +498,10 @@ def upload():
     if not filename:
         return jsonify({"error": "Only PDF files are supported"}), 400
 
-    docs_dir = _resolve_documents_dir()
-    docs_dir.mkdir(parents=True, exist_ok=True)
-    dest = docs_dir / filename
+    section_id = request.form.get("section", "").strip()
+    dest, rel_path = destination_for_upload(filename, section_id)
+    if dest is None:
+        return jsonify({"error": rel_path}), 400
 
     reindexed = dest.exists()
 
@@ -295,23 +520,24 @@ def upload():
         dest.unlink(missing_ok=True)
         return jsonify({"error": pdf_error}), 400
 
-    job_id = create_job(docs_dir, filename, reindexed=reindexed)
-    print(f"\n[/upload] Job {job_id}: {filename}" + (" (re-index)" if reindexed else ""))
+    job_id = create_job(_resolve_documents_dir(), rel_path, reindexed=reindexed)
+    print(f"\n[/upload] Job {job_id}: {rel_path}" + (" (re-index)" if reindexed else ""))
 
     def run_ingestion() -> None:
-        on_progress = make_progress_callback(docs_dir, job_id)
+        on_progress = make_progress_callback(_resolve_documents_dir(), job_id)
         try:
             result = ingest_pdf(
                 dest,
                 reindexed=reindexed,
                 on_progress=on_progress,
+                source_key=rel_path,
             )
-            complete_job(docs_dir, job_id, result)
+            complete_job(_resolve_documents_dir(), job_id, result)
         except IngestError as exc:
             print(f"[/upload] Ingest error: {exc.message}")
-            job = get_job(docs_dir, job_id)
+            job = get_job(_resolve_documents_dir(), job_id)
             fail_job(
-                docs_dir,
+                _resolve_documents_dir(),
                 job_id,
                 exc.message,
                 stage=job.get("stage") if job else None,
@@ -319,13 +545,15 @@ def upload():
         except Exception as exc:
             dest.unlink(missing_ok=True)
             print(f"[/upload] Unexpected error: {exc}")
-            fail_job(docs_dir, job_id, "Indexing failed — file was not added")
+            fail_job(_resolve_documents_dir(), job_id, "Indexing failed — file was not added")
 
     threading.Thread(target=run_ingestion, daemon=True).start()
 
     return jsonify({
         "job_id": job_id,
         "filename": filename,
+        "path": rel_path,
+        "section": section_id,
         "status": "accepted",
         "reindexed": reindexed,
     }), 202
@@ -347,24 +575,23 @@ def upload_status(job_id: str):
 @app.route("/delete/<path:filename>", methods=["DELETE"])
 def delete_document(filename: str):
     """Delete a document from disk and remove its vectors from Pinecone."""
-    safe_name = _sanitize_filename(filename)
-    if not safe_name:
-        return jsonify({"error": "Invalid filename"}), 400
+    clean_path = filename.replace("\\", "/").strip().lstrip("/")
+    if ".." in clean_path.split("/"):
+        return jsonify({"error": "Invalid document path"}), 400
 
-    docs_dir = _resolve_documents_dir()
-    dest = docs_dir / safe_name
-
-    if not dest.exists():
+    dest = find_pdf_by_path(clean_path)
+    if not dest:
         return jsonify({"error": "Document not found"}), 404
 
-    print(f"\n[/delete] Removing: {safe_name}")
+    print(f"\n[/delete] Removing: {clean_path}")
 
     try:
-        vectors_deleted = delete_vectors_by_source(safe_name)
+        vectors_deleted = delete_vectors_by_source(clean_path)
         dest.unlink()
         return jsonify({
             "status": "deleted",
-            "filename": safe_name,
+            "filename": dest.name,
+            "path": clean_path,
             "vectors_deleted": vectors_deleted,
         })
     except Exception as exc:
@@ -384,6 +611,9 @@ if __name__ == "__main__":
     print(f"   GET  /health")
     print(f"   POST /query")
     print(f"   GET  /documents")
+    print(f"   POST /interactions")
+    print(f"   GET  /drugs")
+    print(f"   GET  /drugs/<id>")
     print(f"   POST /upload")
     print(f"   GET  /upload/status/<job_id>")
     print(f"   DELETE /delete/<filename>")

@@ -65,11 +65,14 @@ def chunk_pages(pages: list[dict], source_filename: str) -> list[dict]:
         length_function=len,
     )
 
-    # Normalize filename — strip path, keep just the filename
-    source = Path(source_filename).name
+    # source may be a relative path (e.g. drug-labels/Metformin.pdf)
+    source = source_filename.replace("\\", "/").strip().lstrip("/")
+    if not source.lower().endswith(".pdf"):
+        source = Path(source_filename).name
 
     # Build a clean stem for chunk IDs (no spaces, no extension)
-    source_stem = Path(source).stem.replace(" ", "_")
+    source_stem = Path(source).name.replace(" ", "_")
+    source_stem = Path(source_stem).stem.replace(" ", "_")
 
     all_chunks = []
     global_chunk_index = 0

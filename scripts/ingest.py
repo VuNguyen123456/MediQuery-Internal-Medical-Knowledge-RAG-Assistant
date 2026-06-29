@@ -101,7 +101,7 @@ def main():
             print(f"  # then add NIH, WHO, FDA PDFs")
             sys.exit(1)
 
-        pdf_paths = sorted(DOCUMENTS_DIR.glob("*.pdf"))
+        pdf_paths = sorted(DOCUMENTS_DIR.glob("**/*.pdf"))
 
         if not pdf_paths:
             print(f"\nNo PDFs found in {DOCUMENTS_DIR}/")

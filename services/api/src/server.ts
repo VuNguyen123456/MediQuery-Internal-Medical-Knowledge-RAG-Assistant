@@ -24,6 +24,8 @@ dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 import authRoutes from "./routes/auth";
 import queryRoutes from "./routes/query";
 import uploadRoutes from "./routes/upload";
+import interactionRoutes from "./routes/interactions";
+import vaccineRoutes from "./routes/vaccines";
 import { authGuard } from "./middleware/authGuard";
 
 const app = express();
@@ -54,6 +56,8 @@ app.use("/auth", authRoutes);
 // ---------------------------------------------------------------------------
 app.use("/api", authGuard, queryRoutes);
 app.use("/api", authGuard, uploadRoutes);
+app.use("/api", authGuard, interactionRoutes);
+app.use("/api", authGuard, vaccineRoutes);
 
 // ---------------------------------------------------------------------------
 // 404 handler
@@ -77,7 +81,14 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/documents`);
   console.log(`   POST /api/upload`);
   console.log(`   GET  /api/upload/status/:jobId`);
-  console.log(`   DELETE /api/documents/:filename`);
+  console.log(`   DELETE /api/documents?path=...`);
+  console.log(`   POST /api/interactions`);
+  console.log(`   GET  /api/drugs`);
+  console.log(`   GET  /api/drugs/:drugId`);
+  console.log(`   POST /api/drug-precautions`);
+  console.log(`   POST /api/vaccine-precautions`);
+  console.log(`   GET  /api/vaccines`);
+  console.log(`   GET  /api/vaccines/:vaccineId`);
   console.log(` Flask service: ${process.env.FLASK_SERVICE_URL || "http://localhost:5000"}\n`);
 });
 

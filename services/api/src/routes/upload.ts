@@ -51,24 +51,33 @@ function handleMulterError(err: unknown, res: Response): boolean {
 // POST /api/upload — ingest a PDF into the knowledge base
 // ---------------------------------------------------------------------------
 router.post("/upload", (req: AuthenticatedRequest, res: Response) => {
-  upload.single("file")(req, res, async (err: unknown) => {
+  upload.fields([{ name: "file", maxCount: 1 }])(req, res, async (err: unknown) => {
     if (err && handleMulterError(err, res)) return;
 
-    if (!req.file) {
+    const files = req.files as { file?: Express.Multer.File[] } | undefined;
+    const file = files?.file?.[0];
+
+    if (!file) {
       res.status(400).json({ error: "Request must include a PDF file" });
       return;
     }
 
+    const section =
+      typeof req.body?.section === "string" ? req.body.section.trim() : "";
+
     console.log(
-      `[/api/upload] User: ${req.user?.email} | File: ${req.file.originalname} (${req.file.size} bytes)`
+      `[/api/upload] User: ${req.user?.email} | File: ${file.originalname} (${file.size} bytes) | Section: ${section || "(none)"}`
     );
 
     try {
       const form = new FormData();
-      form.append("file", req.file.buffer, {
-        filename: req.file.originalname,
+      form.append("file", file.buffer, {
+        filename: file.originalname,
         contentType: "application/pdf",
       });
+      if (section) {
+        form.append("section", section);
+      }
 
       const flaskResponse = await axios.post(`${FLASK_URL}/upload`, form, {
         headers: form.getHeaders(),
@@ -136,41 +145,38 @@ router.get(
 );
 
 // ---------------------------------------------------------------------------
-// DELETE /api/documents/:filename — remove PDF + vectors
+// DELETE /api/documents?path=section/file.pdf — remove PDF + vectors
 // ---------------------------------------------------------------------------
-router.delete(
-  "/documents/:filename",
-  async (req: AuthenticatedRequest, res: Response) => {
-    const filename = req.params.filename;
+router.delete("/documents", async (req: AuthenticatedRequest, res: Response) => {
+  const docPath = typeof req.query.path === "string" ? req.query.path.trim() : "";
 
-    if (!filename || !filename.toLowerCase().endsWith(".pdf")) {
-      res.status(400).json({ error: "Invalid document filename" });
-      return;
-    }
-
-    console.log(`[/api/documents] User: ${req.user?.email} | Delete: ${filename}`);
-
-    try {
-      const flaskResponse = await axios.delete(
-        `${FLASK_URL}/delete/${encodeURIComponent(filename)}`,
-        { timeout: 30000 }
-      );
-      res.json(flaskResponse.data);
-    } catch (err) {
-      if (axios.isAxiosError(err)) {
-        if (err.code === "ECONNREFUSED") {
-          res.status(503).json({ error: "RAG service unavailable" });
-          return;
-        }
-        if (err.response) {
-          res.status(err.response.status).json(err.response.data);
-          return;
-        }
-      }
-      console.error("[/api/documents] Unexpected error:", err);
-      res.status(500).json({ error: "Failed to delete document" });
-    }
+  if (!docPath || !docPath.toLowerCase().endsWith(".pdf") || docPath.includes("..")) {
+    res.status(400).json({ error: "Invalid document path" });
+    return;
   }
-);
+
+  console.log(`[/api/documents] User: ${req.user?.email} | Delete: ${docPath}`);
+
+  try {
+    const flaskResponse = await axios.delete(
+      `${FLASK_URL}/delete/${encodeURIComponent(docPath)}`,
+      { timeout: 30000 }
+    );
+    res.json(flaskResponse.data);
+  } catch (err) {
+    if (axios.isAxiosError(err)) {
+      if (err.code === "ECONNREFUSED") {
+        res.status(503).json({ error: "RAG service unavailable" });
+        return;
+      }
+      if (err.response) {
+        res.status(err.response.status).json(err.response.data);
+        return;
+      }
+    }
+    console.error("[/api/documents] Unexpected error:", err);
+    res.status(500).json({ error: "Failed to delete document" });
+  }
+});
 
 export default router;

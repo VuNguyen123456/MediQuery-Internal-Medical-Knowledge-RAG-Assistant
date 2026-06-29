@@ -21,6 +21,7 @@ BATCHING:
 
 import os
 import time
+from pathlib import Path
 from typing import Callable, Generator
 from dotenv import load_dotenv
 
@@ -29,6 +30,9 @@ from pinecone import Pinecone, ServerlessSpec
 
 # sentence-transformers runs the embedding model locally
 from sentence_transformers import SentenceTransformer
+
+from drugs.tagging import tag_chunk_drugs
+from vaccines.tagging import tag_chunk_vaccines
 
 load_dotenv()
 
@@ -168,15 +172,27 @@ def upsert_to_pinecone(
     for batch_num, batch in enumerate(batches, start=1):
         vectors = []
         for chunk in batch:
+            metadata = {
+                "text":        chunk["text"],
+                "source":      chunk["source"],
+                "source_basename": Path(chunk["source"]).name,
+                "page":        chunk["page"],
+                "chunk_index": chunk["chunk_index"],
+            }
+            drug_meta = tag_chunk_drugs(chunk["text"])
+            if drug_meta.get("drugs"):
+                metadata["drugs"] = drug_meta["drugs"]
+            if drug_meta.get("drug_pair"):
+                metadata["drug_pair"] = drug_meta["drug_pair"]
+
+            vaccine_meta = tag_chunk_vaccines(chunk["text"])
+            if vaccine_meta.get("vaccines"):
+                metadata["vaccines"] = vaccine_meta["vaccines"]
+
             vectors.append({
                 "id": chunk["chunk_id"],
                 "values": chunk["embedding"],
-                "metadata": {
-                    "text":        chunk["text"],
-                    "source":      chunk["source"],
-                    "page":        chunk["page"],
-                    "chunk_index": chunk["chunk_index"],
-                },
+                "metadata": metadata,
             })
 
         index.upsert(vectors=vectors)
@@ -189,24 +205,32 @@ def upsert_to_pinecone(
     return total_upserted
 
 
-def delete_vectors_by_source(source_filename: str) -> int:
+def delete_vectors_by_source(source: str) -> int:
     """
-    Delete all Pinecone vectors whose metadata.source matches the filename.
-
-    Args:
-        source_filename: Exact PDF filename (e.g. "Metformin.pdf").
-
-    Returns:
-        Number of vectors deleted (best-effort from Pinecone response).
+    Delete Pinecone vectors for a document (relative path and legacy basename).
     """
     index = _get_pinecone_index()
-    response = index.delete(filter={"source": {"$eq": source_filename}})
-    deleted = getattr(response, "deleted_count", None)
-    if deleted is None and isinstance(response, dict):
-        deleted = response.get("deleted_count", 0)
-    count = int(deleted or 0)
-    print(f"  [uploader] Deleted {count} vectors for source '{source_filename}'")
-    return count
+    basename = Path(source.replace("\\", "/")).name
+    total = 0
+
+    for key in {source, basename}:
+        if not key:
+            continue
+        response = index.delete(filter={"source": {"$eq": key}})
+        deleted = getattr(response, "deleted_count", None)
+        if deleted is None and isinstance(response, dict):
+            deleted = response.get("deleted_count", 0)
+        total += int(deleted or 0)
+
+    if basename and basename != source:
+        response = index.delete(filter={"source_basename": {"$eq": basename}})
+        deleted = getattr(response, "deleted_count", None)
+        if deleted is None and isinstance(response, dict):
+            deleted = response.get("deleted_count", 0)
+        total += int(deleted or 0)
+
+    print(f"  [uploader] Deleted {total} vectors for source '{source}'")
+    return total
 
 
 def _batch(items: list, size: int) -> Generator:

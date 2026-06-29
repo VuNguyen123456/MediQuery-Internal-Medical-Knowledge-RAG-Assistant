@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from documents.catalog import relative_pdf_path, resolve_documents_root
 from ingestion.parser import parse_pdf
 from ingestion.chunker import chunk_pages
 from ingestion.uploader import embed_chunks, upsert_to_pinecone
@@ -40,6 +41,7 @@ def ingest_pdf(
     *,
     reindexed: bool = False,
     on_progress: ProgressCallback | None = None,
+    source_key: str | None = None,
 ) -> dict:
     """
     Run the full ingestion pipeline for a single PDF on disk.
@@ -59,6 +61,12 @@ def ingest_pdf(
         raise IngestError(f"PDF not found: {filepath.name}", 404)
 
     filename = filepath.name
+    docs_root = resolve_documents_root()
+    if source_key is None:
+        try:
+            source_key = relative_pdf_path(filepath, docs_root)
+        except ValueError:
+            source_key = filename
     start = time.time()
 
     def report(
@@ -77,7 +85,7 @@ def ingest_pdf(
         raise IngestError(IMAGE_ONLY_ERROR, 422)
 
     report("chunking", f"Splitting {len(pages)} pages into chunks...")
-    chunks = chunk_pages(pages, filename)
+    chunks = chunk_pages(pages, source_key)
     if not chunks:
         filepath.unlink(missing_ok=True)
         raise IngestError(
@@ -126,6 +134,7 @@ def ingest_pdf(
 
     result = {
         "filename": filename,
+        "path": source_key,
         "pages": len(pages),
         "chunks": len(chunks),
         "vectors": total_vectors,

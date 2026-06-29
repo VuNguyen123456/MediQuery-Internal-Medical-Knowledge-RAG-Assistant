@@ -1,0 +1,177 @@
+{
+  "vaccines": {
+    "influenza": {
+      "canonical_name": "Influenza",
+      "display_name": "Influenza (Flu)",
+      "schedule_pdfs": [
+        "adult-combined-schedule.pdf",
+        "0-18yrs-child-combined-schedule.pdf",
+        "cdc_94956_DS1.pdf"
+      ],
+      "aliases": [
+        "influenza",
+        "influenza vaccine",
+        "flu vaccine",
+        "flu shot",
+        "flu",
+        "iiv",
+        "laiv"
+      ],
+      "age_groups": ["infant", "child", "adult", "older adult"],
+      "common_precautions": [
+        "Egg allergy",
+        "Guillain-Barré syndrome history",
+        "Moderate or severe acute illness"
+      ]
+    },
+    "mmr": {
+      "canonical_name": "MMR",
+      "display_name": "MMR (Measles, Mumps, Rubella)",
+      "schedule_pdfs": [
+        "adult-combined-schedule.pdf",
+        "0-18yrs-child-combined-schedule.pdf"
+      ],
+      "aliases": [
+        "mmr",
+        "measles",
+        "mumps",
+        "rubella",
+        "measles mumps rubella",
+        "mmrv"
+      ],
+      "age_groups": ["child", "adult"],
+      "common_precautions": [
+        "Pregnancy",
+        "Severe immunodeficiency",
+        "Recent blood products"
+      ]
+    },
+    "covid19": {
+      "canonical_name": "COVID-19",
+      "display_name": "COVID-19",
+      "schedule_pdfs": [
+        "cdc_94956_DS1.pdf",
+        "adult-combined-schedule.pdf",
+        "0-18yrs-child-combined-schedule.pdf"
+      ],
+      "aliases": [
+        "covid",
+        "covid-19",
+        "covid 19",
+        "coronavirus",
+        "coronavirus vaccine",
+        "sars-cov-2"
+      ],
+      "age_groups": ["child", "adult", "older adult"],
+      "common_precautions": [
+        "Recent monoclonal antibody treatment",
+        "Acute moderate or severe illness",
+        "History of severe allergic reaction"
+      ]
+    },
+    "tdap": {
+      "canonical_name": "Tdap",
+      "display_name": "Tdap (Tetanus, Diphtheria, Pertussis)",
+      "schedule_pdfs": [
+        "adult-combined-schedule.pdf",
+        "0-18yrs-child-combined-schedule.pdf"
+      ],
+      "aliases": [
+        "tdap",
+        "tetanus",
+        "diphtheria",
+        "pertussis",
+        "whooping cough",
+        "dtap",
+        "td"
+      ],
+      "age_groups": ["child", "adult", "pregnancy"],
+      "common_precautions": [
+        "Guillain-Barré syndrome history",
+        "Moderate or severe acute illness"
+      ]
+    },
+    "hepatitis_b": {
+      "canonical_name": "Hepatitis B",
+      "display_name": "Hepatitis B",
+      "schedule_pdfs": [
+        "adult-combined-schedule.pdf",
+        "0-18yrs-child-combined-schedule.pdf"
+      ],
+      "aliases": [
+        "hepatitis b",
+        "hep b",
+        "hepatitis b vaccine",
+        "hepb",
+        "hbv"
+      ],
+      "age_groups": ["infant", "child", "adult"],
+      "common_precautions": [
+        "Moderate or severe acute illness",
+        "Yeast allergy (specific products)"
+      ]
+    },
+    "hpv": {
+      "canonical_name": "HPV",
+      "display_name": "HPV (Human Papillomavirus)",
+      "schedule_pdfs": [
+        "adult-combined-schedule.pdf",
+        "0-18yrs-child-combined-schedule.pdf"
+      ],
+      "aliases": [
+        "hpv",
+        "human papillomavirus",
+        "gardasil",
+        "cervarix",
+        "papillomavirus"
+      ],
+      "age_groups": ["child", "adult"],
+      "common_precautions": [
+        "Pregnancy",
+        "Moderate or severe acute illness",
+        "History of immediate hypersensitivity"
+      ]
+    },
+    "varicella": {
+      "canonical_name": "Varicella",
+      "display_name": "Varicella (Chickenpox)",
+      "schedule_pdfs": [
+        "adult-combined-schedule.pdf",
+        "0-18yrs-child-combined-schedule.pdf"
+      ],
+      "aliases": [
+        "varicella",
+        "chickenpox",
+        "chicken pox",
+        "varivax"
+      ],
+      "age_groups": ["child", "adult"],
+      "common_precautions": [
+        "Pregnancy",
+        "Severe immunodeficiency",
+        "Recent blood products"
+      ]
+    },
+    "pneumococcal": {
+      "canonical_name": "Pneumococcal",
+      "display_name": "Pneumococcal",
+      "schedule_pdfs": [
+        "adult-combined-schedule.pdf",
+        "0-18yrs-child-combined-schedule.pdf"
+      ],
+      "aliases": [
+        "pneumococcal",
+        "pneumococcus",
+        "prevnar",
+        "pneumovax",
+        "pcv",
+        "ppsv"
+      ],
+      "age_groups": ["infant", "child", "adult", "older adult"],
+      "common_precautions": [
+        "Moderate or severe acute illness",
+        "History of severe allergic reaction"
+      ]
+    }
+  }
+}
