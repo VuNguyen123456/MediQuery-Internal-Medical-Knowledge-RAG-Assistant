@@ -15,7 +15,11 @@ MediQuery solves this by letting authenticated users ask questions in plain Engl
 ## Demo
 
 # Video Walkthrough
+introduction walkthough
 https://www.loom.com/share/fd4576d6345144b2866d4cc70903102b
+
+quality of life update
+https://www.loom.com/share/dfbfe0cb2aa04416b15c4b5f230d37a5
 
 # Screenshots
 Login Page
@@ -28,15 +32,28 @@ Chat
 <img width="2559" height="1251" alt="image" src="https://github.com/user-attachments/assets/f0c0c6d1-4e1d-47c8-813c-3fb6dfc173a9" />
 
 Chat — Document Queries
-<img width="2188" height="888" alt="image" src="https://github.com/user-attachments/assets/c2a7cc32-daa9-4360-baf3-e715149a40cf" />
+<img width="2222" height="1004" alt="image" src="https://github.com/user-attachments/assets/8d1d7281-e0fb-4743-8596-28756c242558" />
 
-<img width="2190" height="911" alt="image" src="https://github.com/user-attachments/assets/a5a04fe6-fa49-4cbb-9558-b8ae47d6dd8b" />
+<img width="2228" height="1016" alt="image" src="https://github.com/user-attachments/assets/dd53b400-36a3-4905-bfd9-cafaef4cce5e" />
 
-Citation Cards
-<img width="1026" height="611" alt="image" src="https://github.com/user-attachments/assets/099c8fea-c8b0-4869-b50c-e9949b3b958c" />
+Confident level
+<img width="914" height="236" alt="image" src="https://github.com/user-attachments/assets/611f1e4a-3864-4f3d-9504-c8c1f7c1bd39" />
+
+<img width="912" height="304" alt="image" src="https://github.com/user-attachments/assets/f1559f15-a3e2-4780-aefc-85e96bcc542e" />
+
+Citation Cards 
+<img width="909" height="558" alt="image" src="https://github.com/user-attachments/assets/44c7c2fb-f77f-49a4-9822-5c56936f24fc" />
+
+<img width="924" height="637" alt="image" src="https://github.com/user-attachments/assets/e7fbfb61-93ff-4dd2-8354-8a4813f01544" />
 
 Document Sidebar
-<img width="324" height="734" alt="image" src="https://github.com/user-attachments/assets/71cbd963-61d0-4312-a368-9ad74258b5a5" />
+<img width="292" height="897" alt="image" src="https://github.com/user-attachments/assets/8fc93b26-cf7d-42a6-8961-6f8ca2475ea8" />
+
+Deleting Document
+<img width="282" height="706" alt="image" src="https://github.com/user-attachments/assets/8900aabd-bbc4-4f96-a550-3263f33977aa" />
+
+Uploading Document
+<img width="291" height="345" alt="image" src="https://github.com/user-attachments/assets/275a9219-09a1-4605-af19-d982402d1887" />
 
 ---
 
