@@ -49,7 +49,15 @@ from generation.prompt import (
     is_refusal_answer,
 )
 from generation.llm import generate_answer
+from generation.format_answer import format_answer_for_display
 from generation.confidence import compute_confidence
+from patient_context import (
+    build_context_string,
+    has_patient_context,
+    parse_patient_context,
+    should_augment_retrieval,
+)
+from screening.common import merge_chunks
 from drugs.detection import detect_drugs_from_conversation
 from drugs.interactions import screen_drugs, DISCLAIMER as INTERACTION_DISCLAIMER
 from drugs.precautions import screen_drug_precautions
@@ -158,9 +166,15 @@ def query():
             if q and a:
                 conversation_history.append({"question": q, "answer": a})
 
+    patient_ctx = parse_patient_context(data.get("patient_context"))
+    context_str = build_context_string(patient_ctx)
+    context_in_prompt = has_patient_context(patient_ctx)
+
     print(f"\n[/query] Question: {question}")
     if conversation_history:
         print(f"[/query] History: {len(conversation_history)} turn(s)")
+    if context_in_prompt:
+        print(f"[/query] Patient context: {context_str}")
 
     try:
         docs_dir = _resolve_documents_dir()
@@ -175,10 +189,26 @@ def query():
             docs_dir=docs_dir,
         )
 
+        augment_retrieval = should_augment_retrieval(
+            question,
+            patient_ctx=patient_ctx,
+            detected_drugs=drug_context["detected_drugs"],
+            detected_vaccines=vaccine_context["detected_vaccines"],
+        )
+
         # Step 1 — retrieve relevant chunks from Pinecone
-        chunks = retrieve(question)
+        chunks = retrieve(question, top_k=6)
+        if augment_retrieval and context_str:
+            context_chunks = retrieve(
+                f"{question} {context_str} precautions contraindication eligibility",
+                top_k=3,
+            )
+            chunks = merge_chunks(chunks, context_chunks)[:6]
+            print("[/query] Retrieval augmented with patient context")
 
         total_documents = _count_indexed_documents()
+
+        prompt_ctx = patient_ctx if context_in_prompt else None
 
         if not chunks:
             return jsonify({
@@ -191,17 +221,28 @@ def query():
                 "detected_vaccines": vaccine_context["detected_vaccines"],
                 "knowledge_base_vaccines": vaccine_context["knowledge_base_vaccines"],
                 "vaccine_profiles": vaccine_context["profiles"],
+                "patient_context_in_prompt": context_in_prompt,
+                "patient_context_in_retrieval": augment_retrieval,
             })
 
         # Step 2 — build RAG prompt (history helps resolve follow-ups like "that")
-        messages = build_prompt(question, chunks, conversation_history=conversation_history)
+        messages = build_prompt(
+            question,
+            chunks,
+            conversation_history=conversation_history,
+            patient_context=prompt_ctx,
+        )
 
         # Step 3 — call Gemini (retry once if it refuses despite relevant chunks)
         answer = generate_answer(messages)
         if chunks and is_refusal_answer(answer):
             print("[/query] Model refused despite retrieved chunks — retrying with stricter prompt")
             messages = build_prompt(
-                question, chunks, retry=True, conversation_history=conversation_history
+                question,
+                chunks,
+                retry=True,
+                conversation_history=conversation_history,
+                patient_context=prompt_ctx,
             )
             answer = generate_answer(messages)
 
@@ -209,6 +250,7 @@ def query():
         citations = extract_citations(chunks)
         confidence = compute_confidence(chunks, total_documents)
         answer = clean_hedged_answer(answer)
+        answer = format_answer_for_display(answer, chunks)
 
         print(
             f"[/query] Done — {len(citations)} citations, "
@@ -225,6 +267,8 @@ def query():
             "detected_vaccines": vaccine_context["detected_vaccines"],
             "knowledge_base_vaccines": vaccine_context["knowledge_base_vaccines"],
             "vaccine_profiles": vaccine_context["profiles"],
+            "patient_context_in_prompt": context_in_prompt,
+            "patient_context_in_retrieval": augment_retrieval,
         })
 
     except EnvironmentError as e:

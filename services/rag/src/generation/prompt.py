@@ -22,10 +22,10 @@ WHAT THE ASSEMBLED PROMPT LOOKS LIKE:
     ...
 
   Context documents:
-    [Document 1 — Metformin.pdf, Page 4]
+    [Metformin.pdf, Page 4]
     "Metformin is first-line therapy for type 2 diabetes..."
 
-    [Document 2 — WHO Diabetes treatment guidelines PDF.pdf, Page 12]
+    [WHO Diabetes treatment guidelines PDF.pdf, Page 12]
     "GI symptoms are most common in first weeks of treatment..."
 
   Question: What are the side effects of Metformin?
@@ -51,8 +51,39 @@ CRITICAL — when to answer vs refuse:
 - Do not open with "I could not find information" if the excerpts contain relevant warnings or precautions — lead with what the documents say.
 
 Formatting:
-- Be precise and clinical. Keep answers concise — 2-5 sentences unless more detail is needed.
-- Cite document name and page when stating facts.
+- Use clear structure — never one long wall of text or long run-on bullets.
+- Structure is for readability, NOT brevity. Include every relevant fact from the excerpts.
+- Open with 1–2 short sentences that directly answer the question.
+- Then use labeled sections with bullets (one clinical point per line; split long facts across bullets):
+
+**Common effects**
+- Diarrhea, nausea, upset stomach (often improve with continued use) [Metformin.pdf, Page 34]
+- Metallic taste in ~3% of patients [Metformin.pdf, Page 34]
+- Hypoglycemia is rare alone but possible with fasting, alcohol, or other glucose-lowering drugs [Metformin.pdf, Page 34]
+
+**Serious warning — lactic acidosis**
+- Can be fatal; symptoms include malaise, myalgias, abdominal pain, respiratory distress, somnolence [Metformin.pdf, Page 15]
+- Severe cases: hypotension, resistant bradyarrhythmias, elevated lactate, anion gap acidosis [Metformin.pdf, Page 15]
+- Stop metformin immediately if suspected; hemodialysis may be needed [Metformin.pdf, Page 15]
+
+**Risk factors**
+- Severe kidney disease, injectable contrast dye, liver disease, heavy alcohol use [Metformin.pdf, Page 34]
+- Dehydration, surgery, heart attack, severe infection, or stroke [Metformin.pdf, Page 34]
+
+**Renal & elderly patients**
+- Reduced clearance and longer half-life with kidney impairment [Metformin.pdf, Page 4]
+- Elderly patients: lower total clearance and higher Cmax, mainly due to renal changes [Metformin.pdf, Page 4]
+
+**What to do**
+- Educate patients/families on lactic acidosis symptoms; discontinue and report promptly [Metformin.pdf, Page 15]
+
+Completeness:
+- Cover ALL warnings, symptoms, risk factors, and population cautions present in the excerpts.
+- For side-effect or safety questions, aim for thorough synthesis (typically 8–15 bullets across sections).
+- Never omit a clinical warning from the excerpts to keep the answer short.
+- Use **Bold section labels** on their own line; blank line between sections.
+- Cite using the exact PDF filename from the excerpt header: [Filename.pdf, Page P]. Never use "Document 1/2/3" numbering.
+- EVERY bullet point MUST end with a citation — do not omit them.
 - Do not invent specific doses or clinical facts that are absent from the excerpts.
 
 You are not a replacement for professional medical advice. You are a document
@@ -60,7 +91,10 @@ retrieval assistant helping clinical teams find information faster."""
 
 RETRY_INSTRUCTION = """
 IMPORTANT: Do NOT refuse. The excerpts above are relevant to the question.
-Summarize what they say about the drugs/conditions asked about, including warnings and precautions.
+Summarize ALL relevant warnings, precautions, side effects, and risk factors from the excerpts.
+Use structured markdown (short intro, **section labels**, thorough bullet lists) — not a wall of text.
+Cite as [Filename.pdf, Page P] using exact names from excerpt headers — never "Document 1/2/3".
+Do NOT shorten or omit clinical details for brevity.
 Do NOT use the phrase "I could not find information about this in the indexed documents."
 """
 
@@ -85,6 +119,7 @@ def build_prompt(
     *,
     retry: bool = False,
     conversation_history: list[dict] | None = None,
+    patient_context: dict[str, str] | None = None,
 ) -> list[dict]:
     """
     Build the message list for the Gemini API call.
@@ -117,7 +152,14 @@ def build_prompt(
 {history_block}
 ---""" if history_block else ""
 
+    patient_block = ""
+    if patient_context:
+        from patient_context import build_prompt_context_block
+
+        patient_block = build_prompt_context_block(patient_context)
+
     full_prompt = f"""{SYSTEM_PROMPT}
+{patient_block}
 {history_section}
 ---
 DOCUMENT EXCERPTS:
@@ -161,6 +203,23 @@ def clean_hedged_answer(answer: str) -> str:
     return answer
 
 
+def format_source_filename(source: str) -> str:
+    """Return basename for citation labels (e.g. Metformin.pdf)."""
+    name = source.replace("\\", "/").split("/")[-1].strip()
+    return name or source
+
+
+def format_page_label(page) -> str | int:
+    if isinstance(page, float) and page == int(page):
+        return int(page)
+    return page if page is not None else "?"
+
+
+def format_citation_label(source: str, page) -> str:
+    """Human-readable inline citation: [Metformin.pdf, Page 4]."""
+    return f"[{format_source_filename(source)}, Page {format_page_label(page)}]"
+
+
 def _build_context_block(chunks: list[dict]) -> str:
     """
     Format retrieved chunks into a readable context block.
@@ -169,20 +228,19 @@ def _build_context_block(chunks: list[dict]) -> str:
     can reference them accurately in its answer.
 
     Example output:
-      [Document 1 — Metformin.pdf, Page 4]
+      [Metformin.pdf, Page 4]
       Metformin is first-line therapy for type 2 diabetes mellitus...
 
-      [Document 2 — WHO Diabetes treatment guidelines PDF.pdf, Page 12]
+      [WHO Diabetes treatment guidelines PDF.pdf, Page 12]
       GI symptoms are most common in the first weeks of treatment...
     """
     lines = []
-    for i, chunk in enumerate(chunks, 1):
+    for chunk in chunks:
         source = chunk.get("source", "Unknown")
         page = chunk.get("page", "?")
-        page_label = int(page) if isinstance(page, float) and page == int(page) else page
         text = chunk.get("text", "").strip()
 
-        lines.append(f"[Document {i} — {source}, Page {page_label}]")
+        lines.append(format_citation_label(source, page))
         lines.append(text)
         lines.append("")  # blank line between chunks
 

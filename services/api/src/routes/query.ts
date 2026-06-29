@@ -32,6 +32,13 @@ interface HistoryTurn {
   answer: string;
 }
 
+interface PatientContextBody {
+  age: string;
+  gender: string;
+  allergies: string;
+  conditions: string;
+}
+
 function sanitizeHistory(raw: unknown): HistoryTurn[] {
   if (!Array.isArray(raw)) return [];
 
@@ -48,8 +55,23 @@ function sanitizeHistory(raw: unknown): HistoryTurn[] {
   return turns.slice(-3);
 }
 
+function sanitizePatientContext(raw: unknown): PatientContextBody | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+
+  const o = raw as Record<string, unknown>;
+  const ctx: PatientContextBody = {
+    age: typeof o.age === "string" ? o.age.trim() : "",
+    gender: typeof o.gender === "string" ? o.gender.trim() : "",
+    allergies: typeof o.allergies === "string" ? o.allergies.trim() : "",
+    conditions: typeof o.conditions === "string" ? o.conditions.trim() : "",
+  };
+
+  const hasAny = ctx.age || ctx.gender || ctx.allergies || ctx.conditions;
+  return hasAny ? ctx : undefined;
+}
+
 router.post("/query", async (req: AuthenticatedRequest, res: Response) => {
-  const { question, history } = req.body;
+  const { question, history, patient_context } = req.body;
 
   if (!question || typeof question !== "string" || !question.trim()) {
     res.status(400).json({ error: "Request body must include a non-empty 'question' field" });
@@ -57,18 +79,27 @@ router.post("/query", async (req: AuthenticatedRequest, res: Response) => {
   }
 
   const conversationHistory = sanitizeHistory(history);
+  const patientContext = sanitizePatientContext(patient_context);
 
   console.log(
     `[/api/query] User: ${req.user?.email} | Question: ${question.slice(0, 60)}...` +
-      (conversationHistory.length ? ` | History: ${conversationHistory.length} turn(s)` : "")
+      (conversationHistory.length ? ` | History: ${conversationHistory.length} turn(s)` : "") +
+      (patientContext ? " | Patient context: yes" : "")
   );
 
   try {
-    const flaskBody: { question: string; history?: HistoryTurn[] } = {
+    const flaskBody: {
+      question: string;
+      history?: HistoryTurn[];
+      patient_context?: PatientContextBody;
+    } = {
       question: question.trim(),
     };
     if (conversationHistory.length > 0) {
       flaskBody.history = conversationHistory;
+    }
+    if (patientContext) {
+      flaskBody.patient_context = patientContext;
     }
 
     const flaskResponse = await axios.post(
